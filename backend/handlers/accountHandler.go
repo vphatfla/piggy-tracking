@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 
 	customerror "github.com/spending-tracking/customError"
@@ -70,24 +71,31 @@ func GetAccountHandler(responseW http.ResponseWriter, request *http.Request) {
 }
 
 func RegisterNewUserHandler(responseW http.ResponseWriter, request *http.Request) {
+	r := render.New()
 	// get over body request
 	var newUser model.User
 	err := json.NewDecoder(request.Body).Decode(&newUser)
 
 	if err != nil {
-		http.Error(responseW, "Invalid payload "+err.Error(), http.StatusBadRequest)
+		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	// check if username exists
-	res, err := util.CheckUsernameExist(newUser.Username)
+	// check if email exists
+	res, err := util.CheckEmailExist(newUser.Email)
 
 	if err != nil {
-		http.Error(responseW, "Invalid payload - username check "+err.Error(), http.StatusBadRequest)
+		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
 	if res {
-		http.Error(responseW, "Invalid payload - username exists ", http.StatusBadRequest)
+		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": "user exist"})
+		return
+	}
+	// check sign up code
+	SIGN_UP_CODE, err := strconv.Atoi(os.Getenv("SIGN_UP_CODE"))
+	if (err != nil || SIGN_UP_CODE != newUser.Code) {
+		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -95,28 +103,29 @@ func RegisterNewUserHandler(responseW http.ResponseWriter, request *http.Request
 	hashedPassword, err := util.HashPassword(rawPassword)
 
 	if err != nil {
-		http.Error(responseW, "Invalid payload - password "+err.Error(), http.StatusBadRequest)
+		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
 	id, err := db.InsertNewAccount(newUser, hashedPassword)
 
 	if err != nil {
-		http.Error(responseW, "Invalid payload - db transaction "+err.Error(), http.StatusBadRequest)
+		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
-	fmt.Fprint(responseW, "New user id = ", id)
+	responseW.Header().Set("Content-Type", "application/json")
+	r.JSON(responseW, http.StatusAccepted, map[string]any{"id":id})
 }
 
 func AccountLoginHandler(responseW http.ResponseWriter, request *http.Request) {
 	r := render.New()
 	var user model.User
 	json.NewDecoder(request.Body).Decode(&user)
-	username, raw_password := user.Username, user.RawPassword
+	email, raw_password := user.Email, user.RawPassword
 
-	// check if username exist
-	check, err := util.CheckUsernameExist(username)
+	// check if email exist
+	check, err := util.CheckEmailExist(email)
 
 	if err != nil {
 		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -128,7 +137,7 @@ func AccountLoginHandler(responseW http.ResponseWriter, request *http.Request) {
 	}
 
 	// check password
-	check, err = util.CheckRawPassword(raw_password, username)
+	check, err = util.CheckRawPassword(raw_password, email)
 	if err != nil {
 		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -138,18 +147,19 @@ func AccountLoginHandler(responseW http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	tokenStr, err := util.CreateJWTToken(username)
+	tokenStr, err := util.CreateJWTToken(email)
 	if err != nil {
 		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
-	id, err := util.GetUserIdBYUsername(username)
+	id, err := util.GetUserIdBYemail(email)
 
 	if err != nil {
 		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+
 	responseW.Header().Set("Content-Type", "application/json")
 	responseW.WriteHeader(http.StatusOK)
 	r.JSON(responseW, http.StatusAccepted, map[string]any{"token": tokenStr, "id": id})

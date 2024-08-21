@@ -18,7 +18,13 @@ func OpenDB() *sql.DB {
 		fmt.Printf("ERROR opening db connection %e\n", err)
 		return nil
 	}
-
+	
+	err = db.Ping()
+	
+	if err != nil {
+		fmt.Printf("ERROR pinging db %e\n", err)
+		return nil
+	}
 	fmt.Printf("Successfully connect to mysql db\n")
 	return db
 }

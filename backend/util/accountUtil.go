@@ -6,9 +6,9 @@ import (
 	"github.com/spending-tracking/db"
 )
 
-func CheckUsernameExist(username string) (bool, error) {
+func CheckEmailExist(email string) (bool, error) {
 
-	_,err := db.QueryIdByUserName(username)
+	_,err := db.QueryIdByEmail(email)
 
 	if err != nil {
 		if err != sql.ErrNoRows {
@@ -20,8 +20,8 @@ func CheckUsernameExist(username string) (bool, error) {
 	return true, nil
 }
 
-func CheckRawPassword(rawPassword, username string) (bool, error) {
-	hash, err := db.GetHashPasswordByUserName(username)
+func CheckRawPassword(rawPassword, email string) (bool, error) {
+	hash, err := db.GetHashPasswordByEmail(email)
 	if err != nil {
 		return false, err
 	}
@@ -29,7 +29,7 @@ func CheckRawPassword(rawPassword, username string) (bool, error) {
 	return CheckPasswordHash(rawPassword, hash), nil
 }
 
-func GetUserIdBYUsername(username string) (int, error) {
-	id,err := db.QueryIdByUserName(username)
+func GetUserIdBYemail(email string) (int, error) {
+	id,err := db.QueryIdByEmail(email)
 	return id, err
 }

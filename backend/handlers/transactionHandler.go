@@ -15,24 +15,25 @@ import (
 )
 
 func GetAllTransactionByUserIdHandler(responseW http.ResponseWriter, request *http.Request) {
+	r := render.New()
 	responseW.Header().Set("Content-Type", "application/json")
 	tkCheck, err := util.TokenRequestHandling(request)
 
 	if err != nil {
 		if errors.Is(err, customerror.NoAuthError()) {
 			responseW.WriteHeader(http.StatusUnauthorized)
-			fmt.Fprint(responseW, "No Authorization detected")
+			r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
 		if errors.Is(err, customerror.InvalidJWTToken()) {
 			responseW.WriteHeader(http.StatusUnauthorized)
-			fmt.Fprint(responseW, "Invalid token")
+			r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
 	}
 	if !tkCheck {
 		responseW.WriteHeader(http.StatusUnauthorized)
-		fmt.Fprint(responseW, "Unable to authorize for resources")
+		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	// params
@@ -43,21 +44,21 @@ func GetAllTransactionByUserIdHandler(responseW http.ResponseWriter, request *ht
 	userId, err := strconv.Atoi(userIdStr)
 	if err != nil {
 		responseW.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(responseW, "invalid userId")
+		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
 	transactions, err := db.GetAllTransactionByUserId(userId)
 	if err != nil {
 		responseW.WriteHeader(http.StatusBadRequest)
-		http.Error(responseW, err.Error(), http.StatusBadRequest)
+		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
 	transactionJson, err := json.Marshal(transactions)
 	if err != nil {
 		responseW.WriteHeader(http.StatusBadRequest)
-		http.Error(responseW, err.Error(), http.StatusBadRequest)
+		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -66,24 +67,25 @@ func GetAllTransactionByUserIdHandler(responseW http.ResponseWriter, request *ht
 }
 
 func GetAllTransactionByUserIdAndDateRange(responseW http.ResponseWriter, request *http.Request) {
+	r := render.New()
 	responseW.Header().Set("Content-Type", "application/json")
 	tkCheck, err := util.TokenRequestHandling(request)
 
 	if err != nil {
 		if errors.Is(err, customerror.NoAuthError()) {
 			responseW.WriteHeader(http.StatusUnauthorized)
-			fmt.Fprint(responseW, "No Authorization detected")
+			r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
 		if errors.Is(err, customerror.InvalidJWTToken()) {
 			responseW.WriteHeader(http.StatusUnauthorized)
-			fmt.Fprint(responseW, "Invalid token")
+			r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
 	}
 	if !tkCheck {
 		responseW.WriteHeader(http.StatusUnauthorized)
-		fmt.Fprint(responseW, "Unable to authorize for resources")
+		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	// params
@@ -94,7 +96,7 @@ func GetAllTransactionByUserIdAndDateRange(responseW http.ResponseWriter, reques
 	userId, err := strconv.Atoi(userIdStr)
 	if err != nil {
 		responseW.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(responseW, "invalid userId")
+		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -106,14 +108,14 @@ func GetAllTransactionByUserIdAndDateRange(responseW http.ResponseWriter, reques
 
 	if err != nil {
 		responseW.WriteHeader(http.StatusBadRequest)
-		http.Error(responseW, err.Error(), http.StatusBadRequest)
+		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
 	transactionJson, err := json.Marshal(transactions)
 	if err != nil {
 		responseW.WriteHeader(http.StatusBadRequest)
-		http.Error(responseW, err.Error(), http.StatusBadRequest)
+		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -127,18 +129,18 @@ func PostNewTransactionHandler(responseW http.ResponseWriter, request *http.Requ
 	if err != nil {
 		if errors.Is(err, customerror.NoAuthError()) {
 			responseW.WriteHeader(http.StatusUnauthorized)
-			fmt.Fprint(responseW, "No Authorization detected")
+			r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
 		if errors.Is(err, customerror.InvalidJWTToken()) {
 			responseW.WriteHeader(http.StatusUnauthorized)
-			fmt.Fprint(responseW, "Invalid token")
+			r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
 	}
 	if !tkCheck {
 		responseW.WriteHeader(http.StatusUnauthorized)
-		fmt.Fprint(responseW, "Unable to authorize for resources")
+		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": "authorization"})
 		return
 	}
 	// params
@@ -146,14 +148,14 @@ func PostNewTransactionHandler(responseW http.ResponseWriter, request *http.Requ
 	err = json.NewDecoder(request.Body).Decode(&transaction)
 	if err != nil {
 		fmt.Print(err.Error())
-		http.Error(responseW, "Invalid payload   "+err.Error(), http.StatusBadRequest)
+		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
 	id, err := db.UploadTransaction(transaction)
 
 	if err != nil {
-		http.Error(responseW, err.Error(), http.StatusBadRequest)
+		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	// empty or invalid id

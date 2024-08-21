@@ -12,7 +12,6 @@ import (
 
 func main() {
 	r := chi.NewRouter()
-
 	db.OpenDB()
 
 	r.Use(cors.Handler(cors.Options{
