@@ -49,6 +49,13 @@ export default {
     }
   },
   methods: {
+    resetData() {
+      this.item_name = ''
+      this.type = ''
+      this.amount = ''
+      this.comment = ''
+      this.date = ''
+    },
     async submitForm() {
       // console.log(new Date(this.date).toISOString())
       this.uploading = true
@@ -63,6 +70,7 @@ export default {
       const res = await uploadTransactionFunction(newTransaction)
       this.uploading = false
       this.showForm = false
+      this.resetData()
       this.$emit('parentFetch')
     }
   }

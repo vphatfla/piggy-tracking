@@ -6,8 +6,9 @@
         <h1>Track Your Spending with Piggy</h1>
       </div>
       <div class="col col-md-5 my-auto ">
+        <h4 v-show="signUpSucess">Sign Up Successfully, please log in!</h4>
         <LogIn  v-if="isToLogInChosen" ></LogIn>
-        <SignUp v-else></SignUp>
+        <SignUp v-else @updateSignUpStatus="{signUpSucess = true; isToLogInChosen = true}"></SignUp>
         <a href="#" @click.prevent="isToLogInChosen = !isToLogInChosen">Don't have an account? Sign Up!</a>
       </div>
     </div>
@@ -24,7 +25,8 @@ export default {
   },
   data() {
     return {
-      isToLogInChosen: true
+      isToLogInChosen: true,
+      signUpSucess: false
     }
   }
 }

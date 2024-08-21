@@ -8,7 +8,7 @@
       <form @submit.prevent="login">
         <div class="mb-3">
           <label for="exampleInputEmail1" class="form-label">Email</label>
-          <input type="email" class="form-control" id="exampleInputEmail1" aria-describedby="emailHelp" v-model="username">
+          <input type="email" class="form-control" id="exampleInputEmail1" aria-describedby="emailHelp" v-model="email">
           <!-- <div id="emailHelp" class="form-text">We'll never share your email with anyone else.</div> -->
         </div>
         <div class="mb-3">
@@ -34,7 +34,7 @@ export default {
   name: 'LogIn',
   data() {
     return {
-      username: '',
+      email: '',
       password: '',
       router: useRouter()
     }
@@ -42,16 +42,12 @@ export default {
   methods: {
     async login() {
       console.log('Login Handler')
-      const res = await loginFunction(this.username, this.password)
+      const res = await loginFunction(this.email, this.password)
       if (res === null) {
         console.log('log in successed')
         const user_id = localStorage.getItem('user_id') || ''
         console.log('user id = ', +user_id)
         this.router.push({ path: '/transactions', query: { userId: user_id } })
-        // this.$router.push({
-        //   path: '/transactions',
-        //   query: { userId: user_id }
-        // })
       } else {
         console.log(res)
       }
