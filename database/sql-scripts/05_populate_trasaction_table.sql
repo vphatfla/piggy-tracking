@@ -19,7 +19,7 @@ SELECT
         ELSE 'other_shopping'
     END,
     ROUND(RAND() * 1000, 2),
-    CONCAT('Comment for ', u.`username`),
+    CONCAT('Comment for ', u.`email`),
     DATE('2024-01-01')
 FROM
     `user` u
@@ -47,7 +47,7 @@ SELECT
         ELSE 'other_shopping'
     END,
     ROUND(RAND() * 1000, 2),
-    CONCAT('Comment for ', u.`username`),
+    CONCAT('Comment for ', u.`email`),
     DATE('2024-02-01')
 FROM
     `user` u
@@ -75,7 +75,7 @@ SELECT
         ELSE 'other_shopping'
     END,
     ROUND(RAND() * 1000, 2),
-    CONCAT('Comment for ', u.`username`),
+    CONCAT('Comment for ', u.`email`),
     DATE('2024-03-01')
 FROM
     `user` u
