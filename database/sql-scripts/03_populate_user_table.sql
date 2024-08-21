@@ -1,8 +1,8 @@
 INSERT INTO
-    `user` (`username`, `name`)
+    `user` (`email`, `name`)
 VALUES
-    ('user1', 'John Doe'),
-    ('user2', 'Jane Smith'),
-    ('user3', 'Alice Johnson'),
-    ('user4', 'Bob Brown'),
-    ('user5', 'Emily Davis');
+    ('ex1@piggytracking.com', 'John Doe'),
+    ('ex21@piggytracking.com', 'Jane Smith'),
+    ('uex211@piggytracking.com', 'Alice Johnson'),
+    ('uex331@piggytracking.com', 'Bob Brown'),
+    ('user5ex1@piggytracking.com', 'Emily Davis');

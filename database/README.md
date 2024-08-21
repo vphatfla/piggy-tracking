@@ -1,8 +1,8 @@
 ## Build the image
 ```
-docker build -t mysqlctn . 
+docker build -t piggydb . 
 ```
-This will build the image called mysqlctn. 
+This will build the image called piggydb. 
 To check the image, run
 ```
 docker images
@@ -10,7 +10,7 @@ docker images
 
 ## Run the image
 ```
-docker run -it -p 3306:3306 mysqlctn
+docker run -it -p 3306:3306 --name piggydbctn piggydb
 ```
 This will map the 3306 map in the container to the localhost 3306
 
