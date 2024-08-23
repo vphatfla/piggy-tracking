@@ -20,7 +20,7 @@
             <input type="date" class="form-control datepicker" id="endDate" placeholder="Select end date"
               v-model="endDate">
           </div>
-          <button type="submit" class="btn btn-primary" style="height: 2.5rem;">Submit</button>
+          <button type="submit" class="btn btn-outline-secondary" style="height: 2.5rem;">Apply</button>
         </form>
 
         <div class="mb-4"></div>
