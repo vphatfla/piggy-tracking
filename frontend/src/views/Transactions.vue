@@ -3,16 +3,32 @@
     <div class="col-md-12 mt-4 d-flex justify-content-center">
       <div class="col-9 p-5">
         <h4>Hello, {{ this.u_name }}</h4>
-        <h5>Your Spending in {{ this.selectMonth + '-' +this.selectYear }} </h5>
+        <div class="d-flex gap-3">
+          <h5>Your Spending in {{ this.selectMonth + '-' + this.selectYear }} </h5>
+          <a href="#" @click.prevent="openEdit = !openEdit">
+            <img src="../assets/pen.svg">
+          </a>
+        </div>
+        <form v-if="openEdit" class="d-flex gap-3 align-items-end flex-grow">
+          <div class="form-group">
+            <label for="startDate">Start Date:</label>
+            <input type="date" class="form-control datepicker" id="startDate" placeholder="Select start date"
+              v-model="startDate">
+          </div>
+          <div class="form-group">
+            <label for="endDate">End Date:</label>
+            <input type="date" class="form-control datepicker" id="endDate" placeholder="Select end date"
+              v-model="endDate">
+          </div>
+          <button type="submit" class="btn btn-primary" style="height: 2.5rem;">Submit</button>
+        </form>
+
         <div class="mb-4"></div>
         <div class="card p-4">
           <TableData :transactionsArr="transactionsArr"></TableData>
           <div class="row d-flex justify-content-center mt-4">
-            <button
-              class="btn btn-primary"
-              style="width: fit-content"
-              @click="this.showAddNewItem = !this.showAddNewItem"
-            >
+            <button class="btn btn-primary" style="width: fit-content"
+              @click="this.showAddNewItem = !this.showAddNewItem">
               Add New Item
             </button>
           </div>
@@ -40,9 +56,12 @@ export default {
       transactionsArr: [],
       u_name: '',
       showAddNewItem: false,
+      openEdit: false,
       selectMonth: '',
       selectYear: '',
       user_id: '',
+      startDate: '',
+      endDate: '',
     }
   },
   methods: {
@@ -57,8 +76,8 @@ export default {
     },
     async fetchTransactionsWithDateRange() {
       const date = new Date(new Date());
-      const firstDate = new Date(new Date(date.getFullYear(), date.getMonth(), 1).setUTCHours(0,0,0,0)).toISOString();
-      const lastDate = new Date( new Date(date.getFullYear(), date.getMonth() + 1, 0).setUTCHours(0,0,0,0)).toISOString();
+      const firstDate = new Date(new Date(date.getFullYear(), date.getMonth(), 1).setUTCHours(0, 0, 0, 0)).toISOString();
+      const lastDate = new Date(new Date(date.getFullYear(), date.getMonth() + 1, 0).setUTCHours(0, 0, 0, 0)).toISOString();
       const res = await getTransactionsByUserIdWithTimeRange(this.user_id, firstDate, lastDate)
       this.transactionsArr = res
     },
@@ -80,3 +99,5 @@ export default {
   }
 }
 </script>
+
+<style scoped></style>
