@@ -15,9 +15,12 @@
           <label for="exampleInputPassword1" class="form-label">Password</label>
           <input type="password" class="form-control" id="exampleInputPassword1" v-model="password">
         </div>
-        <div class="d-flex">
+        <div class="d-flex gap-3">
           <div class="mr-auto pr-2 pt-2 pb-2">
             <button type="submit" class="btn btn-primary">Submit</button>
+          </div>
+          <div v-show="wrongCredential" class="alert alert-danger" role="alert">
+            Wrong Log In Credential! Try again. 
           </div>
         </div>
       </form>
@@ -36,6 +39,7 @@ export default {
     return {
       email: '',
       password: '',
+      wrongCredential: false,
       router: useRouter()
     }
   },
@@ -49,6 +53,7 @@ export default {
         console.log('user id = ', +user_id)
         this.router.push({ path: '/transactions', query: { userId: user_id } })
       } else {
+        this.wrongCredential = true
         console.log(res)
       }
     }
