@@ -4,7 +4,7 @@
       <div class="col-9 p-5">
         <h4>Hello, {{ this.u_name }}</h4>
         <div class="d-flex gap-3">
-          <h5>Your Spending in {{ this.selectMonth + '-' + this.selectYear }} </h5>
+          <h5>Your Spending in {{ computeDisplayDateInfo }} </h5>
           <a href="#" @click.prevent="openEdit = !openEdit">
             <img src="../assets/pen.svg">
           </a>
@@ -60,8 +60,19 @@ export default {
       selectMonth: '',
       selectYear: '',
       user_id: '',
-      startDate: '',
-      endDate: '',
+      startDate: null,
+      endDate: null,
+    }
+  },
+  computed: {
+    computeDisplayDateInfo() {
+      if (this.startDate == null && this.endDate == null) {
+        return this.selectMonth + '-' + this.selectYear
+      } else {
+        const startD = new Date(this.startDate)
+        const endD = (this.endDate == null) ? new Date(Date.now()) : new Date(this.endDate);
+        return startD.toString() + ' to ' + endD.toString()
+      }
     }
   },
   methods: {

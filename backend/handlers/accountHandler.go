@@ -94,11 +94,15 @@ func RegisterNewUserHandler(responseW http.ResponseWriter, request *http.Request
 	}
 	// check sign up code
 	SIGN_UP_CODE, err := strconv.Atoi(os.Getenv("SIGN_UP_CODE"))
-	if (err != nil || SIGN_UP_CODE != newUser.Code) {
+	if (err != nil) {
 		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
+	if (SIGN_UP_CODE != newUser.Code) {
+		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": "invalid code"})
+		return
+	}
 	rawPassword := newUser.RawPassword
 	hashedPassword, err := util.HashPassword(rawPassword)
 

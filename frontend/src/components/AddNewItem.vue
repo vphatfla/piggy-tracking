@@ -1,37 +1,27 @@
 <template>
-  <div class="form row w-100 d-flex justify-content-center">
-    <div class="row form-group col-md-2">
+  <form class="d-flex align-items-end gap-1">
+    <div class="form-group">
       <label>Item Name</label>
       <input type="text" v-model="item_name" required />
     </div>
-    <div class="row form-group col-md-2">
+    <div class="form-group">
       <label>Type</label>
       <input type="text" v-model="type" />
     </div>
-    <div class="row form-group col-md-2">
+    <div class="form-group">
       <label>Amount</label>
       <input type="number" v-model="amount" />
     </div>
-    <div class="row form-group col-md-2">
+    <div class="form-group">
       <label>Comment</label>
       <input type="text" v-model="comment" />
     </div>
-    <div class="row form-group col-md-2">
+    <div class="form-group">
       <label>Date</label>
-      <input type="date" v-model="date" />
+      <input type="date" class="form-control datepicker" placeholder="Input Date" v-model="date" />
     </div>
-    <div class="row form-group col-md-2 d-flex align-items-center">
-      <button
-        type="button"
-        class="btn btn-primary mt-3"
-        @click="submitForm"
-        style="width: 100px; height: 40px"
-        :disabled="uploading"
-      >
-        Submit
-      </button>
-    </div>
-  </div>
+    <button type="submit" class="btn btn-outline-secondary" style="height: 2.5rem;">Add</button>
+  </form>
 </template>
 
 <script>

@@ -7,9 +7,11 @@
       </div>
       <div class="col col-md-5 my-auto ">
         <h4 v-show="signUpSucess">Sign Up Successfully, please log in!</h4>
-        <LogIn  v-if="isToLogInChosen" ></LogIn>
-        <SignUp v-else @updateSignUpStatus="{signUpSucess = true; isToLogInChosen = true}"></SignUp>
-        <a href="#" @click.prevent="isToLogInChosen = !isToLogInChosen">Don't have an account? Sign Up!</a>
+        <LogIn v-if="isToLogInChosen"></LogIn>
+        <SignUp v-else @updateSignUpStatus="{ signUpSucess = true; isToLogInChosen = true }"></SignUp>
+        <a v-if="isToLogInChosen" href="#" @click.prevent="isToLogInChosen = !isToLogInChosen">Don't have an account? Sign
+          Up!</a>
+        <a v-else href="#" @click.prevent="isToLogInChosen = !isToLogInChosen">Already have an account? Log In!</a>
       </div>
     </div>
   </div>
