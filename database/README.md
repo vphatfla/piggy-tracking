@@ -9,8 +9,9 @@ docker images
 ```
 
 ## Run the image
-```
-docker run -it -p 3306:3306 --name piggydbctn piggydb
+Note: have to create a folder /piggydata/mysql/data in the host machine first
+``
+docker run -it -d -p 3306:3306 -v /piggydata/mysql/data:/var/lib/mysql --name piggydbctn piggydb
 ```
 This will map the 3306 map in the container to the localhost 3306
 
