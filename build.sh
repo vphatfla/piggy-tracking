@@ -15,7 +15,7 @@ else
 	exit 1
 fi
 
-echo "PULLING GIT: sucessfully\n\n"
+printf "PULLING GIT: sucessfully\n\n"
 
 # Docker: Remove old container and images
 
@@ -24,33 +24,13 @@ echo "Docker: removing containers"
 docker rm -f piggyfectn
 docker rm -f piggybectn
 docker rm -f piggydbctn
-echo "\n"
+echo ""
 docker rmi -f piggyfe
 docker rmi -f piggybe
 docker rmi -f piggydb
 
 echo "Docker remove: Success!"
-echo "_______________________\n\n"
-
-# Database
-
-echo "BUILDING and RUNNING MYSQL DATBASE"
-
-cd database
-
-echo "Building database image"
-
-docker build -t piggydb .
-
-echo "Running the MySQL container"
-
-docker run -it -d -p 3306:3306 -v /piggydata/mysql/data:/var/lib/mysql --name piggydbctn piggydb
-
-docker ps
-
-echo "Database build and run SUCCESS! Live at port 3306"
-
-cd ..
+printf "_______________________\n\n"
 
 # Front end
 
@@ -64,7 +44,7 @@ docker build -t piggyfe .
 
 echo "Running container"
 
-docker build -it -d --name piggyfectn piggyfe
+docker run  -it -d --name piggyfectn piggyfe
 
 echo "DONE!"
 
@@ -86,9 +66,18 @@ echo "REMOVE the container image"
 
 docker rmi -f piggyfe
 
-echo "FRONT END build successfully\n\n"
+printf "FRONT END build successfully\n\n"
 
 cd ..
+
+# SLEEP
+
+printf "SLEEPING 30s"
+
+sleep 30s
+
+
+
 
 # Back end
 
@@ -125,13 +114,46 @@ docker rm -f piggybectn
 echo "Removing image"
 docker rmi piggybe
 
-echo "Restart the systemctl service"
+cd ..
+# SLEEP
+
+printf "SLEEPING 30s"
+
+sleep 30s
+
+# Database
+
+echo "BUILDING and RUNNING MYSQL DATBASE"
+
+cd database
+
+echo "Building database image"
+
+docker build -t piggydb .
+
+echo "Running the MySQL container"
+
+docker run -it -d -p 127.0.0.1:3306:3306 -v /piggydata/mysql/data:/var/lib/mysql --name piggydbctn piggydb
+
+docker ps
+
+printf "Database build and run SUCCESS! Live at port 3306\n\n"
+
+
+# SLEEP
+
+printf "SLEEPING 30s"
+
+sleep 30s
+
+# BACK END SERVICE
+printf "\n\n\n"
+
+echo "Piggy Backend ServiceRestart the systemctl service"
 
 sudo systemctl restart piggybe-service.service
 
-echo "Backend Built and Run SUCCESSFULLY\n\n"
-
-cd .. 
+printf "Backend Built and Run SUCCESSFULLY\n\n"
 
 echo "FINISHED!"
 
