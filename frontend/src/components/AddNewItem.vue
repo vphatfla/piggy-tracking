@@ -1,5 +1,5 @@
 <template>
-  <form class="d-flex align-items-end gap-1">
+  <form class="d-flex align-items-end gap-1" @submit.prevent="submitTransaction">
     <div class="form-group">
       <label>Item Name</label>
       <input type="text" v-model="item_name" required />
@@ -46,7 +46,7 @@ export default {
       this.comment = ''
       this.date = ''
     },
-    async submitForm() {
+    async submitTransaction() {
       // console.log(new Date(this.date).toISOString())
       this.uploading = true
       const newTransaction = {
