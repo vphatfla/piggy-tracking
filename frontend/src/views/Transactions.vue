@@ -1,7 +1,7 @@
 <template>
   <div class="h-100 row">
     <div class="col-md-12 mt-4 d-flex justify-content-center">
-      <div class="col-9 p-5">
+      <div class="col-10 p-5">
         <h4>Hello, {{ this.u_name }}</h4>
         <div class="d-flex gap-3">
           <h5>Your Spending in {{ computeDisplayDateInfo }} </h5>
@@ -26,13 +26,13 @@
         <div class="mb-4"></div>
         <div class="card p-4">
           <TableData :transactionsArr="transactionsArr"></TableData>
-          <div class="row d-flex justify-content-center mt-4">
+          <div class="d-flex justify-content-center mt-4">
             <button class="btn btn-primary" style="width: fit-content"
               @click="this.showAddNewItem = !this.showAddNewItem">
               Add New Item
             </button>
           </div>
-          <div v-show="showAddNewItem" class="row mt-2">
+          <div v-show="showAddNewItem" class="d-flex justify-content-center mt-2">
             <AddNewItem @parentFetch="addedItemTrigger"></AddNewItem>
           </div>
         </div>
