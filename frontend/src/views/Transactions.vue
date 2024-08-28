@@ -28,11 +28,11 @@
           <TableData :transactionsArr="transactionsArr"></TableData>
           <div class="d-flex justify-content-center mt-4">
             <button class="btn btn-primary" style="width: fit-content"
-              @click="this.showAddNewItem = !this.showAddNewItem">
+              @click.prevent="this.showAddNewItem = !this.showAddNewItem">
               Add New Item
             </button>
           </div>
-          <div v-show="showAddNewItem" class="d-flex justify-content-center mt-2">
+          <div v-if="showAddNewItem" class="d-flex justify-content-center mt-2">
             <AddNewItem @parentFetch="addedItemTrigger"></AddNewItem>
           </div>
         </div>
