@@ -9,7 +9,7 @@
             <img src="../assets/pen.svg">
           </a>
         </div>
-        <form v-if="openEdit" class="d-flex gap-3 align-items-end flex-grow">
+        <form v-if="openEdit" @submit.prevent="updateDateRange" class="d-flex gap-3 align-items-end flex-grow">
           <div class="form-group">
             <label for="startDate">Start Date:</label>
             <input type="date" class="form-control datepicker" id="startDate" placeholder="Select start date"
@@ -27,7 +27,7 @@
         <div class="card p-4">
           <TableData :transactionsArr="transactionsArr"></TableData>
           <div class="d-flex justify-content-center mt-4">
-            <button class="btn btn-primary" style="width: fit-content"
+            <button class="btn btn-secondary" style="width: fit-content"
               @click.prevent="this.showAddNewItem = !this.showAddNewItem">
               Add New Item
             </button>
@@ -47,6 +47,7 @@ import { getTransactionsByUserId, getTransactionsByUserIdWithTimeRange } from '.
 import { getAccountDetails } from '../util/accountUtil.js'
 import { useRouter, useRoute } from 'vue-router'
 import AddNewItem from '../components/AddNewItem.vue'
+import { formatDateString, formatMonthString } from "../util/dateTimeUtil.js"
 export default {
   // eslint-disable-next-line vue/multi-word-component-names
   name: 'Transactions',
@@ -57,45 +58,54 @@ export default {
       u_name: '',
       showAddNewItem: false,
       openEdit: false,
-      selectMonth: '',
-      selectYear: '',
       user_id: '',
       startDate: null,
-      endDate: null,
+      endDate: Date.now(),
     }
   },
   computed: {
     computeDisplayDateInfo() {
-      if (this.startDate == null && this.endDate == null) {
-        return this.selectMonth + '-' + this.selectYear
+      if (this.startDate == null) {
+        return formatMonthString(Date.now())
       } else {
-        const startD = new Date(this.startDate)
-        const endD = (this.endDate == null) ? new Date(Date.now()) : new Date(this.endDate);
-        return startD.toString() + ' to ' + endD.toString()
+        const startD = new Date(new Date(this.startDate))
+        const endD = new Date(this.endDate);
+        return `${formatDateString(startD)} to ${formatDateString(endD)}`
       }
     }
   },
   methods: {
     addedItemTrigger() {
       this.showAddNewItem = false
-      this.fetchTransactionsWithDateRange()
+      this.fetchTransactions()
     },
     async fetchTransactions() {
-      const res = await getTransactionsByUserId(this.user_id)
-      this.fetchUserInformation()
-      this.transactionsArr = res
+      if (this.startDate == null)
+        this.fetchCureentMonthTransactions()
+      else {
+        const start = new Date(new Date(this.startDate).setUTCHours(0, 0, 0, 0)).toISOString()
+        const end = new Date(new Date(this.endDate).setUTCHours(0, 0, 0, 0)).toISOString()
+        await this.fetchTransactionsWithDateRange(start, end)
+      }
     },
-    async fetchTransactionsWithDateRange() {
-      const date = new Date(new Date());
-      const firstDate = new Date(new Date(date.getFullYear(), date.getMonth(), 1).setUTCHours(0, 0, 0, 0)).toISOString();
-      const lastDate = new Date(new Date(date.getFullYear(), date.getMonth() + 1, 0).setUTCHours(0, 0, 0, 0)).toISOString();
-      const res = await getTransactionsByUserIdWithTimeRange(this.user_id, firstDate, lastDate)
+    async fetchCureentMonthTransactions() {
+      const date = new Date();
+      const startStr = new Date(new Date(date.getFullYear(), date.getMonth(), 1).setUTCHours(0, 0, 0, 0)).toISOString();
+      const endStr = new Date(new Date(date.getFullYear(), date.getMonth() + 1, 0).setUTCHours(0, 0, 0, 0)).toISOString();
+      await this.fetchTransactionsWithDateRange(startStr, endStr)
+    },
+    async fetchTransactionsWithDateRange(startISOString, endISOString) {
+
+      const res = await getTransactionsByUserIdWithTimeRange(this.user_id, startISOString, endISOString)
       this.transactionsArr = res
     },
     /* eslint-disable @typescript-eslint/no-explicit-any */
     async fetchUserInformation() {
       const res = await getAccountDetails(this.user_id)
       this.u_name = res.name
+    },
+    updateDateRange() {
+      this.fetchTransactions()
     }
   },
   mounted() {
@@ -104,9 +114,8 @@ export default {
     const date = new Date()
     this.selectMonth = date.getMonth() + 1
     this.selectYear = date.getFullYear()
-    this.fetchTransactionsWithDateRange()
+    this.fetchTransactions()
     this.fetchUserInformation()
-    // this.fetchTransactions()
   }
 }
 </script>
