@@ -7,6 +7,9 @@
       <input type="text" class="form-control" placeholder="Type" aria-label="Type" v-model="type" required>
     </div>
     <div class="col mb-3">
+      <AutoComplete :items="itemTypeArray"></AutoComplete>
+    </div>
+    <div class="col mb-3">
       <input type="number" class="form-control" placeholder="Amount" aria-label="Amount" v-model="amount" required>
     </div>
     <div class="col mb-3">
@@ -24,8 +27,13 @@
 
 <script>
 import { uploadTransactionFunction } from '../util/transactionsUtil.js'
+import AutoComplete from './AutoComplete.vue'
+
+const itemTypeArray = ['Grocery', 'Gas', 'Phone Bill', 'Rent', 'Morgate', 'Car Maintenance', 'Restaurant', 'Take-out Food', 'Online Shopping', 'Clothes Shopping', 'Other Shopping']
+
 export default {
   name: 'AddNewItem',
+  components: { AutoComplete },
   data() {
     return {
       item_name: '',
@@ -33,7 +41,8 @@ export default {
       amount: '',
       comment: '',
       date: '',
-      uploading: false
+      uploading: false,
+      itemTypeArray
     }
   },
   methods: {
