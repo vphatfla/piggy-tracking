@@ -4,10 +4,7 @@
       <input type="text" class="form-control" placeholder="Item Name" aria-label="Item Name" v-model="item_name" required>
     </div>
     <div class="col mb-3">
-      <input type="text" class="form-control" placeholder="Type" aria-label="Type" v-model="type" required>
-    </div>
-    <div class="col mb-3">
-      <AutoComplete :items="itemTypeArray"></AutoComplete>
+      <AutoComplete :items="itemTypeArray" v-model:itemType="type"></AutoComplete>
     </div>
     <div class="col mb-3">
       <input type="number" class="form-control" placeholder="Amount" aria-label="Amount" v-model="amount" required>

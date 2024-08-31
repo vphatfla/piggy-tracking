@@ -1,7 +1,7 @@
 <template>
     <div class="autocomplete">
         <input type="text" class="form-control" @input="onChange" v-model="search" @keydown.down="onArrowDown"
-            @keydown.up="onArrowUp" @keydown.enter="onEnter" />
+            @keydown.up="onArrowUp" @keydown.enter="onEnter" placeholder="Item Type" />
         <ul id="autocomplete-results" v-show="isOpen" class="autocomplete-results">
             <li v-for="(result, i) in results" :key="i" @click="setResult(result)" class="autocomplete-result"
                 :class="{ 'is-active': i === arrowCounter }">
@@ -15,6 +15,10 @@
 export default {
     name: 'AutoComplete',
     props: {
+        itemType: {
+            type: String,
+            required: true
+        },
         items: {
             type: Array,
             required: false,
@@ -26,6 +30,7 @@ export default {
             default: false,
         },
     },
+    emits: ['update:itemType'],
     data() {
         return {
             isOpen: false,
@@ -60,7 +65,7 @@ export default {
             });
         },
         onChange() {
-            this.$emit("input", this.search);
+            this.$emit('update:itemType', this.search)
 
             if (this.isAsync) {
                 this.isLoading = true;
