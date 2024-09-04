@@ -14,21 +14,22 @@ else
 	echo "ERROR: Not a Git repo. Exiting!!!!"
 	exit 1
 fi
-
+echo "DONE"
 printf "PULLING GIT: sucessfully\n\n"
 
 # Docker: Remove old container and images
 
 echo "Docker: removing images and containers..."
 echo "Docker: removing containers"
-docker rm -f piggyfectn
-docker rm -f piggybectn
-docker rm -f piggydbctn
-echo ""
-docker rmi -f piggyfe
-docker rmi -f piggybe
-docker rmi -f piggydb
+sudo docker rm -f piggyfectn
+sudo docker rm -f piggybectn
+sudo docker rm -f piggydbctn
+echo "DONE"
+sudo docker rmi -f piggyfe
+sudo docker rmi -f piggybe
+sudo docker rmi -f piggydb
 
+echo "DONE"
 echo "Docker remove: Success!"
 printf "_______________________\n\n"
 
@@ -40,31 +41,31 @@ echo "Piggy - FRONT END"
 
 echo "Building image"
 
-docker build -t piggyfe .
+sudo docker build -t piggyfe .
 
 echo "Running container"
 
-docker run  -it -d --name piggyfectn piggyfe
+sudo docker run  -it -d --name piggyfectn piggyfe
 
 echo "DONE!"
 
 echo "Copy dist: Docker cp - COPYING dist to /var/html"
 
-docker cp piggyfectn:/app/dist /var/www/html/
+sudo docker cp piggyfectn:/app/dist /var/www/html/
 
 echo "DONE!"
 
 echo "STOPING the container front end"
 
-docker stop piggyfectn
+sudo docker stop piggyfectn
 
 echo "REMOVE the container front end"
 
-docker rm -f piggyfectn
+sudo docker rm -f piggyfectn
 
 echo "REMOVE the container image"
 
-docker rmi -f piggyfe
+sudo docker rmi -f piggyfe
 
 printf "FRONT END build successfully\n\n"
 
@@ -76,9 +77,6 @@ printf "SLEEPING 30s"
 
 sleep 30s
 
-
-
-
 # Back end
 
 cd backend
@@ -87,32 +85,32 @@ echo "Piggy - BACK END"
 
 echo "Building images"
 
-docker build -t piggybe .
+sudo docker build -t piggybe .
 
 echo "DONE!"
 
 echo "Running container"
 
-docker run -it -d --name piggybectn piggybe
+sudo docker run -it -d --name piggybectn piggybe
 
 echo "DONE!"
 
 echo "Copying the binary to the host"
 
-docker cp piggybectn:/app/piggybe-bin .
+sudo docker cp piggybectn:/app/piggybe-bin .
 
 echo "DONE!"
 
 echo "Stoping container"
 
-docker stop piggybectn
+sudo docker stop piggybectn
 
 echo "Removing container"
 
-docker rm -f piggybectn
+sudo docker rm -f piggybectn
 
 echo "Removing image"
-docker rmi piggybe
+sudo docker rmi piggybe
 
 cd ..
 # SLEEP
@@ -129,13 +127,13 @@ cd database
 
 echo "Building database image"
 
-docker build -t piggydb .
+sudo docker build -t piggydb .
 
 echo "Running the MySQL container"
 
-docker run -it -d -p 127.0.0.1:3306:3306 -v /piggydata/mysql/data:/var/lib/mysql --name piggydbctn piggydb
+sudo docker run -it -d -p 127.0.0.1:3306:3306 -v /piggydata/mysql/data:/var/lib/mysql --name piggydbctn piggydb
 
-docker ps
+sudo docker ps
 
 printf "Database build and run SUCCESS! Live at port 3306\n\n"
 
