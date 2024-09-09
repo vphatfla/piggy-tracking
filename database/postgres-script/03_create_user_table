@@ -1,0 +1,6 @@
+CREATE TABLE "user" (
+	id SERIAL PRIMARY KEY, 
+	email VARCHAR(50) NOT NULL, 
+	name VARCHAR(50) NOT NULL, 
+	password BYTEA
+)

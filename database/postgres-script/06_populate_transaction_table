@@ -1,0 +1,12 @@
+INSERT INTO "transaction" (user_id, item_name, type, amount, comment, date)
+VALUES
+    (1, 'Groceries', 'expense', 75.50, 'Weekly shopping', '2024-09-01'),
+    (1, 'Salary', 'income', 3000.00, 'Monthly salary', '2024-09-05'),
+    (2, 'Restaurant', 'expense', 45.75, 'Dinner with friends', '2024-09-02'),
+    (3, 'Gasoline', 'expense', 50.00, 'Car refuel', '2024-09-03'),
+    (4, 'Freelance work', 'income', 500.00, 'Web design project', '2024-09-04'),
+    (5, 'Movie tickets', 'expense', 25.00, 'Weekend entertainment', '2024-09-06'),
+    (2, 'Bonus', 'income', 1000.00, 'Quarterly bonus', '2024-09-07'),
+    (3, 'Utilities', 'expense', 150.00, 'Electricity and water', '2024-09-08'),
+    (4, 'Online course', 'expense', 199.99, 'Programming course', '2024-09-09'),
+    (5, 'Dividend', 'income', 75.25, 'Stock dividend', '2024-09-10');
