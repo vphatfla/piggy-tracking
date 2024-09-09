@@ -1,23 +1,33 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spending-tracking/db"
 	"github.com/spending-tracking/handlers"
 )
 
 func main() {
 	r := chi.NewRouter()
+	// Open Database Pool for Postgress DB RDS
+	db.DBPool, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Unable to create connection pool to Postgresql: %v\n", err)
+		os.Exit(1)
+	}
+	// Defer to close the db pool later
+	defer DBPool.Close()
 	db.OpenDB()
 
 	r.Use(cors.Handler(cors.Options{
-		// AllowedOrigins:   []string{"https://foo.com"}, // Use this to allow specific origin hosts
-		AllowedOrigins: []string{"https://*", "http://*"},
-		// AllowOriginFunc:  func(r *http.Request, origin string) bool { return true },
+		AllowedOrigins:   []string{"https://*", "http://*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "x-access-token"},
 		ExposedHeaders:   []string{"Link"},
