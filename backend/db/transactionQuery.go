@@ -7,7 +7,7 @@ import (
 )
 
 func GetAllTransactionByUserId(userId int) ([]model.Transaction, error) {
-	query := "SELECT * FROM transaction WHERE user_id = $1"
+	query := "SELECT * FROM \"transaction\" WHERE user_id = $1"
 	rows, err := DBPool.Query(context.Background(), query, userId)
 
 	if err != nil {
@@ -32,7 +32,7 @@ func GetAllTransactionByUserId(userId int) ([]model.Transaction, error) {
 }
 
 func GetAllTransactionByUserIdTimeRange(userId int, startDate string, endDate string) ([]model.Transaction, error) {
-	query := "SELECT * FROM transaction WHERE user_id = $1 AND date BETWEEN $2 AND $3 ORDER BY date ASC"
+	query := "SELECT * FROM \"transaction\" WHERE user_id = $1 AND date BETWEEN $2 AND $3 ORDER BY date ASC"
 
 	rows, err := DBPool.Query(context.Background(), query, userId, startDate, endDate)
 	if err != nil {
@@ -56,7 +56,7 @@ func GetAllTransactionByUserIdTimeRange(userId int, startDate string, endDate st
 	return transactions, nil
 }
 func UploadTransaction(transaction model.Transaction) (int64, error) {
-	query := "INSERT INTO transaction (user_id, item_name, type, amount, comment, date) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id;"
+	query := "INSERT INTO \"transaction\" (user_id, item_name, type, amount, comment, date) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id;"
 	var lastInsertedId int64
 	err := DBPool.QueryRow(context.Background(), query, transaction.UserID, transaction.ItemName, transaction.Type, transaction.Amount, transaction.Comment, transaction.Date).Scan(&lastInsertedId)
 
