@@ -25,7 +25,8 @@ func main() {
 	}
 	// Defer to close the db pool later
 	defer db.DBPool.Close()
-	db.OpenDB()
+
+	// db.OpenDB()
 
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"https://*", "http://*"},
