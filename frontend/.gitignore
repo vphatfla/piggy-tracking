@@ -15,3 +15,29 @@ packages/template-compiler/browser.js
 dist
 temp
 types/v3-generated.d.ts
+.DS_Store
+node_modules/
+/dist/
+
+# local env files
+.env.local
+.env.*.local
+
+# Log files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor directories and files
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw*
+
+.eslintrc.cjs
+.prettierrc.json
+env.d.ts
+

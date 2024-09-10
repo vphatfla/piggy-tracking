@@ -1,7 +1,8 @@
 INSERT INTO "user" (email, name, password)
-VALUES
-    ('john.doe@example.com', 'John Doe', encode(sha256('password123'::bytea), 'hex')),
-    ('jane.smith@example.com', 'Jane Smith', encode(sha256('securepass'::bytea), 'hex')),
-    ('bob.johnson@example.com', 'Bob Johnson', encode(sha256('bobspassword'::bytea), 'hex')),
-    ('alice.williams@example.com', 'Alice Williams', encode(sha256('alicepass'::bytea), 'hex')),
-    ('charlie.brown@example.com', 'Charlie Brown', encode(sha256('snoopy'::bytea), 'hex'));
+VALUES 
+  ('john.doe@example.com', 'John Doe', '\\x$2b$12$X9k8cVmKp7nKjK4YZbWepeZuV7MkpSY82Z2cqfZZoTCrqrA2d3mXK'),  -- password: password123
+  ('jane.smith@example.com', 'Jane Smith', '\\x$2b$12$7xN3D2Fy8VY0XtZV/3wdWeO6lglGPqxDPd.rFxFgMwRSp2k5UVuOi'),  -- password: mysecretpwd
+  ('alex.jones@example.com', 'Alex Jones', '\\x$2b$12$ZypV/AQHRD9D1Rjv1tGvOuHTS0U/8W.lEc8DhnwDZn8NzjtQ/a7xe'),  -- password: letmein123
+  ('maria.lopez@example.com', 'Maria Lopez', '\\x$2b$12$Qev5nZOevTXIZJDUZVr6aephHs8XZ67RkwDiYjcSvByPHgpBkXwbS'),  -- password: welcome123
+  ('david.clark@example.com', 'David Clark', '\\x$2b$12$Ff/X82BYdIR59Q5vItq78evf7UX4L/wNNrwFjkmBe8FM3zvFpHuNq');  -- password: topsecretpwd
+
