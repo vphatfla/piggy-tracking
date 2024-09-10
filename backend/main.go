@@ -15,6 +15,7 @@ import (
 )
 
 func main() {
+	fmt.Fprintf(os.Stderr, "Piggy Backend Started\n\n")
 	r := chi.NewRouter()
 	// Open Database Pool for Postgress DB RDS
 	var err error
@@ -23,6 +24,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Unable to create connection pool to Postgresql: %v\n", err)
 		os.Exit(1)
 	}
+	err = db.DBPool.Ping(context.Background())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Unable to ping connection pool to Postgresql: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stderr, "Connect to Postgresql successfully!")
 	// Defer to close the db pool later
 	defer db.DBPool.Close()
 
