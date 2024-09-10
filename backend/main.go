@@ -29,7 +29,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Unable to ping connection pool to Postgresql: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "Connect to Postgresql successfully!")
+	fmt.Fprintf(os.Stderr, "Connect to Postgresql successfully!\n\n")
 	// Defer to close the db pool later
 	defer db.DBPool.Close()
 

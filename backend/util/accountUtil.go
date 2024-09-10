@@ -1,17 +1,16 @@
 package util
 
 import (
-	"database/sql"
-
+	"github.com/jackc/pgx/v5"
 	"github.com/spending-tracking/db"
 )
 
 func CheckEmailExist(email string) (bool, error) {
 
-	_,err := db.QueryIdByEmail(email)
+	_, err := db.QueryIdByEmail(email)
 
 	if err != nil {
-		if err != sql.ErrNoRows {
+		if err != pgx.ErrNoRows {
 			return false, err
 		}
 		return false, nil
@@ -30,6 +29,6 @@ func CheckRawPassword(rawPassword, email string) (bool, error) {
 }
 
 func GetUserIdBYemail(email string) (int, error) {
-	id,err := db.QueryIdByEmail(email)
+	id, err := db.QueryIdByEmail(email)
 	return id, err
 }

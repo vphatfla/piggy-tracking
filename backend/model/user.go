@@ -5,5 +5,5 @@ type User struct {
 	Email       string `json:"email"`
 	Name        string `json:"name,omitempty"`
 	RawPassword string `json:"raw_password,omitempty"`
-	Code        int    `json:"code,omitempty"`  
+	Code        int    `json:"code,omitempty"`
 }

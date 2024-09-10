@@ -15,7 +15,6 @@ import (
 	"github.com/unrolled/render"
 )
 
-
 func GetAccountHandler(responseW http.ResponseWriter, request *http.Request) {
 	responseW.Header().Set("Content-Type", "application/json")
 	tkCheck, err := util.TokenRequestHandling(request)
@@ -45,7 +44,7 @@ func GetAccountHandler(responseW http.ResponseWriter, request *http.Request) {
 
 	responseW.Header().Set("Content-Type", "application/json")
 
-	// empty or invalid id 
+	// empty or invalid id
 	userId, err := strconv.Atoi(userIdStr)
 	if err != nil {
 		responseW.WriteHeader(http.StatusBadRequest)
@@ -80,7 +79,13 @@ func RegisterNewUserHandler(responseW http.ResponseWriter, request *http.Request
 		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+
+	if len(newUser.Email) == 0 || len(newUser.RawPassword) == 0 {
+		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": "Email and password are required!"})
+		return
+	}
 	// check if email exists
+
 	res, err := util.CheckEmailExist(newUser.Email)
 
 	if err != nil {
@@ -94,12 +99,12 @@ func RegisterNewUserHandler(responseW http.ResponseWriter, request *http.Request
 	}
 	// check sign up code
 	SIGN_UP_CODE, err := strconv.Atoi(os.Getenv("SIGN_UP_CODE"))
-	if (err != nil) {
+	if err != nil {
 		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
-	if (SIGN_UP_CODE != newUser.Code) {
+	if SIGN_UP_CODE != newUser.Code {
 		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": "invalid code"})
 		return
 	}
@@ -119,7 +124,7 @@ func RegisterNewUserHandler(responseW http.ResponseWriter, request *http.Request
 	}
 
 	responseW.Header().Set("Content-Type", "application/json")
-	r.JSON(responseW, http.StatusAccepted, map[string]any{"id":id})
+	r.JSON(responseW, http.StatusAccepted, map[string]any{"id": id})
 }
 
 func AccountLoginHandler(responseW http.ResponseWriter, request *http.Request) {
@@ -128,6 +133,10 @@ func AccountLoginHandler(responseW http.ResponseWriter, request *http.Request) {
 	json.NewDecoder(request.Body).Decode(&user)
 	email, raw_password := user.Email, user.RawPassword
 
+	if len(email) == 0 || len(raw_password) == 0 {
+		r.JSON(responseW, http.StatusBadRequest, map[string]string{"error": "Email and password are required!"})
+		return
+	}
 	// check if email exist
 	check, err := util.CheckEmailExist(email)
 
