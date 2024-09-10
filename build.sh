@@ -23,21 +23,18 @@ echo "Docker: removing images and containers..."
 echo "Docker: removing containers"
 sudo docker rm -f piggyfectn
 sudo docker rm -f piggybectn
-sudo docker rm -f piggydbctn
 echo "DONE"
 sudo docker rmi -f piggyfe
 sudo docker rmi -f piggybe
-sudo docker rmi -f piggydb
 
 echo "DONE"
-echo "Docker remove: Success!"
 printf "_______________________\n\n"
 
 # Front end
 
 cd frontend
 
-echo "Piggy - FRONT END"
+echo "FRONT END BUILDING"
 
 echo "Building image"
 
@@ -67,6 +64,7 @@ echo "REMOVE the container image"
 
 sudo docker rmi -f piggyfe
 
+echo "DONE"
 printf "FRONT END build successfully\n\n"
 
 cd ..
@@ -81,13 +79,13 @@ sleep 30s
 
 cd backend
 
-echo "Piggy - BACK END"
+echo "BACK END building"
 
 echo "Building images"
 
 sudo docker build -t piggybe .
 
-echo "DONE!"
+echo "DONE"
 
 echo "Running container"
 
@@ -112,46 +110,13 @@ sudo docker rm -f piggybectn
 echo "Removing image"
 sudo docker rmi piggybe
 
-cd ..
-# SLEEP
-
-printf "SLEEPING 30s"
-
-sleep 30s
-
-# Database
-
-echo "BUILDING and RUNNING MYSQL DATBASE"
-
-cd database
-
-echo "Building database image"
-
-sudo docker build -t piggydb .
-
-echo "Running the MySQL container"
-
-sudo docker run -it -d -p 127.0.0.1:3306:3306 -v /piggydata/mysql/data:/var/lib/mysql --name piggydbctn piggydb
-
-sudo docker ps
-
-printf "Database build and run SUCCESS! Live at port 3306\n\n"
-
-
-# SLEEP
-
-printf "SLEEPING 30s"
-
-sleep 30s
-
 # BACK END SERVICE
-printf "\n\n\n"
 
 echo "Piggy Backend ServiceRestart the systemctl service"
 
 sudo systemctl restart piggybe-service.service
 
-printf "Backend Built and Run SUCCESSFULLY\n\n"
+printf "DONE\n\n"
 
 echo "FINISHED!"
 
