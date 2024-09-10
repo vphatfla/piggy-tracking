@@ -1,5 +1,7 @@
 package configuration
 
+import "os"
+
 func GetJWTKey() ([]byte, error) {
-	return []byte("secrete_key"), nil
+	return []byte(os.Getenv("JWT_SECRETE_KEY")), nil
 }
