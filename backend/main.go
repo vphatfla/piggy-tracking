@@ -17,13 +17,14 @@ import (
 func main() {
 	r := chi.NewRouter()
 	// Open Database Pool for Postgress DB RDS
-	db.DBPool, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
+	var err error
+	db.DBPool, err = pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Unable to create connection pool to Postgresql: %v\n", err)
 		os.Exit(1)
 	}
 	// Defer to close the db pool later
-	defer DBPool.Close()
+	defer db.DBPool.Close()
 	db.OpenDB()
 
 	r.Use(cors.Handler(cors.Options{
