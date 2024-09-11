@@ -36,6 +36,10 @@
             <AddNewItem @parentFetch="addedItemTrigger"></AddNewItem>
           </div>
         </div>
+        <div class="mb-4"></div>
+        <div v-show="transactionsArr.length > 0" class="card p-4">
+          <GraphData :transactionsArr="transactionsArr" ref="graphData"></GraphData>
+        </div>
       </div>
     </div>
   </div>
@@ -48,10 +52,11 @@ import { getAccountDetails } from '../util/accountUtil.js'
 import { useRouter, useRoute } from 'vue-router'
 import AddNewItem from '../components/AddNewItem.vue'
 import { formatDateString, formatMonthString } from "../util/dateTimeUtil.js"
+import GraphData from '../components/GraphData.vue'
 export default {
   // eslint-disable-next-line vue/multi-word-component-names
   name: 'Transactions',
-  components: { TableData, AddNewItem },
+  components: { TableData, AddNewItem, GraphData },
   data() {
     return {
       transactionsArr: [],
@@ -81,12 +86,13 @@ export default {
     },
     async fetchTransactions() {
       if (this.startDate == null)
-        this.fetchCureentMonthTransactions()
+        await this.fetchCureentMonthTransactions()
       else {
         const start = new Date(new Date(this.startDate).setUTCHours(0, 0, 0, 0)).toISOString()
         const end = new Date(new Date(this.endDate).setUTCHours(0, 0, 0, 0)).toISOString()
         await this.fetchTransactionsWithDateRange(start, end)
       }
+      this.$refs.graphData.filterData(this.transactionsArr)
     },
     async fetchCureentMonthTransactions() {
       const date = new Date();

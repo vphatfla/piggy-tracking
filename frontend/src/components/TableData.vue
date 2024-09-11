@@ -1,14 +1,9 @@
 <template>
   <div class="hello">
-    <DataTable
-      :value="transactionsArr"
-      paginator
-      :rows="10"
-      :rowsPerPageOptions="[10, 20, 50]"
+    <DataTable :value="transactionsArr" paginator :rows="10" :rowsPerPageOptions="[10, 20, 50]"
       tableStyle="min-width: 50rem"
       paginatorTemplate="RowsPerPageDropdown FirstPageLink PrevPageLink CurrentPageReport NextPageLink LastPageLink"
-      currentPageReportTemplate="{first} to {last} of {totalRecords}"
-    >
+      currentPageReportTemplate="{first} to {last} of {totalRecords}">
       <Column field="item_name" sortable header="Item Name" style="width: 20%"></Column>
       <Column field="type" sortable header="Type" style="width: 20%"></Column>
       <Column field="amount" header="Amount" sortable style="width: 20%"></Column>
@@ -16,8 +11,8 @@
       <Column field="date" header="Date Purchased" sortable style="width: 20%">
         <template #body="{ data }">
           {{ convertDate(data.date) }}
-        </template></Column
-      >
+        </template>
+      </Column>
     </DataTable>
   </div>
 </template>
@@ -50,7 +45,7 @@ export default {
   methods: {
     convertDate(dateTimeStr) {
       const date = new Date(dateTimeStr)
-      return (date.getUTCMonth() + 1) + '-'+ (date.getUTCDate()) + '-' +date.getUTCFullYear() 
+      return (date.getUTCMonth() + 1) + '-' + (date.getUTCDate()) + '-' + date.getUTCFullYear()
     }
   }
 }
@@ -61,14 +56,17 @@ export default {
 h3 {
   margin: 40px 0 0;
 }
+
 ul {
   list-style-type: none;
   padding: 0;
 }
+
 li {
   display: inline-block;
   margin: 0 10px;
 }
+
 a {
   color: #42b983;
 }
