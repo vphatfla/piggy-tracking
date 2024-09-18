@@ -7,10 +7,10 @@
       <AutoComplete :items="itemTypeArray" v-model:itemType="type"></AutoComplete>
     </div>
     <div class="col mb-3">
-      <input type="number" class="form-control" placeholder="Amount" aria-label="Amount" v-model="amount" required>
+      <input type="number" class="form-control" placeholder="Amount" aria-label="Amount" v-model="amount" step="0.01" required>
     </div>
     <div class="col mb-3">
-      <input type="text" class="form-control" placeholder="Comment" aria-label="Comment" v-model="comment" required>
+      <input type="text" class="form-control" placeholder="Comment" aria-label="Comment" v-model="comment">
     </div>
     <div class="col mb-3">
       <input type="date" class="form-control datepicker" placeholder="Date Purchased" aria-label="Date Purchased"
