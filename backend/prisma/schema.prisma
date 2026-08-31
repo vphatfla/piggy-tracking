@@ -1,0 +1,20 @@
+// Prisma schema — https://pris.ly/d/prisma-schema
+// Datasource URL is supplied by prisma7.config.ts from the DATABASE_URL env var.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Example model, kept deliberately small so migrations, the generated client
+/// and the seed script can all be exercised end to end.
+model Note {
+  id        Int      @id @default(autoincrement())
+  title     String
+  content   String?
+  createdAt DateTime @default(now())
+}

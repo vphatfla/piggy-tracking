@@ -1,0 +1,3 @@
+/* Tailwind v4 entrypoint — this single import replaces the old
+   @tailwind base/components/utilities triple and the JS config file. */
+@import "tailwindcss";

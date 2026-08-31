@@ -1,0 +1,8 @@
+node_modules
+dist
+
+# Environment variables live in the repo-root .env (see .env.example)
+.env
+
+# Prisma Client is generated at build time
+/src/generated/prisma

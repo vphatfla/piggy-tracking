@@ -1,0 +1,46 @@
+# Local development stack: Postgres + the Express/Prisma backend.
+# The frontend is deliberately NOT here — it runs natively via `npm run dev`
+# in frontend/ so Vite's HMR stays fast.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      # Exposed so you can point psql / a GUI client at localhost:5432.
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # `backend` waits on this, so it must report ready only once Postgres
+      # actually accepts connections for our user/database.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # `db` is the compose service name — resolvable on the compose network.
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public
+      PORT: 3000
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+    ports:
+      - "${BACKEND_PORT:-3000}:3000"
+    # Apply any pending migrations before the server starts accepting traffic.
+    command: sh -c "npx prisma migrate deploy && node dist/index.js"
+
+volumes:
+  # Named volume: data survives `docker compose down` (but not `down -v`).
+  postgres_data:

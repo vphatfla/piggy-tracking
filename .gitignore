@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+frontend/dev-dist/
+
+# Local environment — commit .env.example instead
+.env
+.env.local
+.env.*.local
+
+# Generated Prisma Client
+backend/src/generated/
+
+# Logs / OS cruft
+*.log
+npm-debug.log*
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
