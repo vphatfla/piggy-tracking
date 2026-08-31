@@ -36,6 +36,13 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public
       PORT: 3000
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      # Auth. No defaults on the secrets on purpose — the backend refuses to
+      # boot without them rather than falling back to a guessable value.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      ACCESS_TOKEN_EXPIRY: ${ACCESS_TOKEN_EXPIRY:-15m}
+      REFRESH_TOKEN_EXPIRY_DAYS: ${REFRESH_TOKEN_EXPIRY_DAYS:-30}
     ports:
       - "${BACKEND_PORT:-3000}:3000"
     # Apply any pending migrations before the server starts accepting traffic.

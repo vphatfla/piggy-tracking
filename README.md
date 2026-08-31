@@ -24,7 +24,14 @@ cp .env.example .env
 
 # 2. Frontend dependencies (the backend's deps are installed inside its image)
 cd frontend && npm install && cd ..
+
+# 3. Frontend config — needed for the Google sign-in button
+cp frontend/.env.example frontend/.env.local
 ```
+
+Then put your Google OAuth client ID in **both** `.env` (`GOOGLE_CLIENT_ID`) and
+`frontend/.env.local` (`VITE_GOOGLE_CLIENT_ID`), and replace the two placeholder
+JWT secrets in `.env` with `openssl rand -base64 48` output. See [Auth](#auth).
 
 ## Running it
 
@@ -49,19 +56,95 @@ docker compose exec backend npm run seed
 
 ## Endpoints
 
-| Method | Path          | Notes                                        |
-| ------ | ------------- | -------------------------------------------- |
-| GET    | `/api/health` | Liveness probe, does not touch the DB         |
-| GET    | `/api/notes`  | All notes, newest first                       |
-| POST   | `/api/notes`  | Body: `{ "title": string, "content"?: string }` |
+| Method | Path                     | Auth | Notes                                              |
+| ------ | ------------------------ | ---- | -------------------------------------------------- |
+| GET    | `/api/health`            | —    | Liveness probe, does not touch the DB              |
+| POST   | `/api/auth/google`       | —    | `{ idToken }` → `{ accessToken, user }` + sets the refresh cookie |
+| POST   | `/api/auth/refresh`      | cookie | Rotates the refresh token → `{ accessToken, user }` |
+| POST   | `/api/auth/logout`       | cookie | Revokes this session, clears the cookie          |
+| POST   | `/api/auth/logout-all`   | bearer | Revokes every session for the user               |
+| GET    | `/api/users/me`          | bearer | The authenticated user                           |
+| GET    | `/api/users/:id`         | bearer | Only your own id; `403` otherwise                |
+| GET    | `/api/receipts`          | bearer | Your receipts, newest first                      |
+| POST   | `/api/receipts`          | bearer | `{ date: "YYYY-MM-DD", totalAmount, receiptFileName? }` |
+| GET    | `/api/transactions`      | bearer | Your transactions, newest first                  |
+| POST   | `/api/transactions`      | bearer | `{ merchantName, amount, category, receiptId? }`  |
+
+"bearer" means `Authorization: Bearer <access token>`; "cookie" means the
+httpOnly `refreshToken` cookie, which browsers only send when the request is made
+with `credentials: 'include'`.
+
+**No endpoint takes a `userId`.** It comes from the access token, so a caller can
+only ever read and write their own rows. There is no `POST /api/users` either —
+users are created solely by `POST /api/auth/google`, from a verified Google ID
+token.
+
+Money fields are `DECIMAL(10,2)` and are sent and returned as **strings**
+(`"48.75"`), never floats, so cents can't drift through binary rounding.
+Receipt `date` is a calendar `DATE` and serialises as `YYYY-MM-DD`.
+
+Error responses are `{ "error": string }`. Database integrity failures map to
+meaningful statuses: `409` for a duplicate `email`/`googleId`, `400` for a
+foreign key pointing at a row that does not exist.
 
 ```bash
 curl localhost:3000/api/health
-curl -X POST localhost:3000/api/notes \
-  -H 'Content-Type: application/json' \
-  -d '{"title":"Hello","content":"World"}'
-curl localhost:3000/api/notes
+
+# Everything else needs a session. Sign in through the UI, then reuse the token:
+TOKEN='<accessToken from POST /api/auth/google>'
+
+curl -H "Authorization: Bearer $TOKEN" localhost:3000/api/users/me
+
+curl -X POST localhost:3000/api/transactions \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"merchantName":"Blue Bottle","amount":"6.25","category":"Coffee"}'
+
+curl -H "Authorization: Bearer $TOKEN" localhost:3000/api/transactions
 ```
+
+## Auth
+
+Google OAuth, with a short-lived access token and a rotating refresh token.
+
+1. The browser gets a Google **ID token** from Google Identity Services and posts
+   it to `POST /api/auth/google`.
+2. The backend verifies its signature and audience, finds-or-creates the user on
+   the `sub` claim, and returns an **access token** (a JWT whose entire payload is
+   `{ userId }`, valid for `ACCESS_TOKEN_EXPIRY`, default 15 minutes).
+3. A **refresh token** goes back in an `httpOnly; Secure; SameSite=Strict` cookie
+   scoped to `/api/auth`. Only its SHA-256 hash is stored — a database leak
+   cannot be replayed as a login.
+4. `POST /api/auth/refresh` **rotates**: the presented token is revoked and a new
+   one issued, so a stolen cookie works at most once. The frontend calls it on
+   page load for silent sign-in.
+
+The frontend keeps the access token in React state, never `localStorage`.
+
+Set up a Google OAuth **Web application** client at
+[console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials)
+with `http://localhost:5173` as an authorised JavaScript origin, then put the
+same client ID in **both** the root `.env` (`GOOGLE_CLIENT_ID`) and
+`frontend/.env.local` (`VITE_GOOGLE_CLIENT_ID`) — the backend rejects tokens
+minted for any other audience.
+
+## Data model
+
+Four tables. Three come from the `replace_note_with_core_models` migration:
+
+- **User** — Google OAuth only, so no password column; `email` and `googleId`
+  are both unique.
+- **Receipt** — belongs to a User. Deleting the user **cascades**, removing
+  their receipts.
+- **Transaction** — belongs to a User, and *optionally* to a Receipt. Deleting
+  the user cascades; deleting a receipt sets `receiptId` to **NULL** so the
+  spending record survives without its receipt.
+
+- **RefreshToken** — one row per issued session token (`add_refresh_tokens`
+  migration). Stores `sha256(token)`, never the token. Deleting the user
+  cascades, so removing an account ends every session.
+
+Indexed on `Receipt.userId`, `Transaction.userId`, `Transaction.receiptId`, and
+`RefreshToken.userId`.
 
 ## Backend
 
@@ -115,6 +198,12 @@ npm run lint             # oxlint
 The API base URL defaults to `http://localhost:3000`; override with `VITE_API_URL`
 in `frontend/.env.local` (see `frontend/.env.example`).
 
+`src/App.tsx` is a thin end-to-end smoke screen, not real UI: it restores or
+starts a session, lists **your** transactions marking each with its receipt or
+`no receipt`, and the form posts to `POST /api/transactions`. Note the seeded
+demo user cannot be signed in as — its `googleId` is a placeholder string, not a
+real Google `sub`.
+
 ## Database
 
 `postgres:16-alpine`, exposed on `localhost:5432`. Data lives in the named volume
@@ -129,4 +218,6 @@ docker compose exec db psql -U piggy -d piggy
 
 - `.env` is gitignored; `.env.example` is the committed template.
 - CORS is enabled on the backend for `CORS_ORIGIN` (default `http://localhost:5173`),
-  since the frontend runs on a different origin.
+  since the frontend runs on a different origin. It runs with `credentials: true`
+  so the refresh cookie crosses that boundary — which is why `CORS_ORIGIN` must
+  name the origin exactly and can never be `*`.

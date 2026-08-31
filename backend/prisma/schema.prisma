@@ -10,11 +10,72 @@ datasource db {
   provider = "postgresql"
 }
 
-/// Example model, kept deliberately small so migrations, the generated client
-/// and the seed script can all be exercised end to end.
-model Note {
-  id        Int      @id @default(autoincrement())
-  title     String
-  content   String?
-  createdAt DateTime @default(now())
+/// An application user. Authentication is Google OAuth only, so there is no
+/// password column — `googleId` holds the `sub` claim from the Google ID token.
+model User {
+  id          Int      @id @default(autoincrement())
+  firstName   String
+  lastName    String
+  email       String   @unique
+  googleId    String   @unique
+  phoneNumber String?
+  location    String?
+  yearOfBirth Int?     @db.SmallInt
+  createdAt   DateTime @default(now())
+
+  receipts      Receipt[]
+  transactions  Transaction[]
+  refreshTokens RefreshToken[]
+}
+
+/// A scanned/uploaded receipt. Deleting the owning user removes their receipts.
+model Receipt {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  date            DateTime @db.Date
+  totalAmount     Decimal  @db.Decimal(10, 2)
+  receiptFileName String?
+  createdAt       DateTime @default(now())
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([userId])
+}
+
+/// A single line of spending. A transaction may stand alone (manually entered)
+/// or belong to a receipt; deleting that receipt detaches the transaction
+/// (receiptId -> NULL) rather than deleting it.
+model Transaction {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  receiptId    Int?
+  merchantName String
+  amount       Decimal  @db.Decimal(10, 2)
+  category     String
+  createdAt    DateTime @default(now())
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  receipt Receipt? @relation(fields: [receiptId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([receiptId])
+}
+
+/// A refresh-token handle for one browser session. The raw token is only ever
+/// sent to the client in the httpOnly cookie — what is stored here is its
+/// SHA-256 hash, so a database leak cannot be replayed as a login.
+/// Rotation on every use means a row is short-lived: `revokedAt` is stamped and
+/// a replacement row is inserted. A non-null `revokedAt` is never valid again.
+model RefreshToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  tokenHash String    @unique
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

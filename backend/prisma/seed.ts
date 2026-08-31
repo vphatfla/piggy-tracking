@@ -1,21 +1,62 @@
 import { prisma } from '../src/prisma.ts'
 
-const examples = [
-  { title: 'First note', content: 'Seeded from prisma/seed.ts' },
-  { title: 'Second note', content: 'Delete these once you have real data.' },
-]
+// Stable fake Google `sub` — makes the seed idempotent via upsert.
+const GOOGLE_ID = 'seed-google-sub-000000000001'
 
 async function main() {
-  for (const example of examples) {
-    // No unique field on Note to upsert against, so skip rows that already
-    // exist by title — this keeps re-running the seed idempotent.
-    const existing = await prisma.note.findFirst({ where: { title: example.title } })
-    if (existing) {
-      console.log(`[seed] skipping "${example.title}" (already present)`)
-      continue
-    }
-    const created = await prisma.note.create({ data: example })
-    console.log(`[seed] created note ${created.id}: ${created.title}`)
+  // Upsert on googleId so re-running the seed updates rather than duplicating.
+  const user = await prisma.user.upsert({
+    where: { googleId: GOOGLE_ID },
+    update: {},
+    create: {
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      email: 'ada@example.com',
+      googleId: GOOGLE_ID,
+      phoneNumber: '+1-555-0100',
+      location: 'London, UK',
+      yearOfBirth: 1990,
+    },
+  })
+  console.log(`[seed] user ${user.id}: ${user.firstName} ${user.lastName}`)
+
+  // Wipe this user's existing rows so the seed always lands in a known state.
+  await prisma.transaction.deleteMany({ where: { userId: user.id } })
+  await prisma.receipt.deleteMany({ where: { userId: user.id } })
+
+  const receipt = await prisma.receipt.create({
+    data: {
+      userId: user.id,
+      date: new Date('2026-08-24T00:00:00.000Z'),
+      totalAmount: '48.75',
+      receiptFileName: 'wholefoods-2026-08-24.pdf',
+    },
+  })
+  console.log(`[seed] receipt ${receipt.id}: ${receipt.totalAmount} on ${receipt.date.toISOString().slice(0, 10)}`)
+
+  // One transaction attached to the receipt, one standalone (receiptId null).
+  const transactions = await Promise.all([
+    prisma.transaction.create({
+      data: {
+        userId: user.id,
+        receiptId: receipt.id,
+        merchantName: 'Whole Foods Market',
+        amount: '48.75',
+        category: 'Groceries',
+      },
+    }),
+    prisma.transaction.create({
+      data: {
+        userId: user.id,
+        receiptId: null,
+        merchantName: 'Transport for London',
+        amount: '2.80',
+        category: 'Transport',
+      },
+    }),
+  ])
+  for (const t of transactions) {
+    console.log(`[seed] transaction ${t.id}: ${t.merchantName} ${t.amount} (receiptId=${t.receiptId})`)
   }
 }
 

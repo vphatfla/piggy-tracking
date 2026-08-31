@@ -11,6 +11,16 @@ function required(name: string): string {
   return value
 }
 
+function positiveInt(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (!raw) return fallback
+  const value = Number(raw)
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`Environment variable ${name} must be a positive integer`)
+  }
+  return value
+}
+
 export const env = {
   databaseUrl: required('DATABASE_URL'),
   port: Number(process.env.PORT ?? 3000),
@@ -20,4 +30,14 @@ export const env = {
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean),
+
+  // --- auth ---
+  // The `aud` claim every Google ID token must carry to be accepted.
+  googleClientId: required('GOOGLE_CLIENT_ID'),
+  // Two independent secrets: leaking the access-token secret must not also let
+  // an attacker mint refresh tokens, which are far longer-lived.
+  jwtAccessSecret: required('JWT_ACCESS_SECRET'),
+  jwtRefreshSecret: required('JWT_REFRESH_SECRET'),
+  accessTokenExpiry: process.env.ACCESS_TOKEN_EXPIRY ?? '15m',
+  refreshTokenExpiryDays: positiveInt('REFRESH_TOKEN_EXPIRY_DAYS', 30),
 }
