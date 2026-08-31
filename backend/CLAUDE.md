@@ -79,6 +79,12 @@ every live session.
 `POST /api/auth/google` verifies a Google ID token, finds-or-creates the User on
 `googleId`, and starts a session. `/refresh`, `/logout`, `/logout-all` manage it.
 
+`GOOGLE_CLIENT_ID` is **format-validated at boot** (`src/env.ts`): the container
+refuses to start unless it ends in `.apps.googleusercontent.com` and is not the
+`.env.example` placeholder. Without that check a misconfigured client ID is
+indistinguishable from a bad token — both come back as the same opaque 401 from
+`verifyGoogleIdToken` — so the failure is moved to startup where the log says why.
+
 **The access token is the only source of identity.** `requireAuth`
 (`src/middleware/auth.ts`) verifies the `Authorization: Bearer` JWT and hangs
 `{ userId }` off the request; `authedUserId(req)` reads it and throws if the

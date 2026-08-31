@@ -27,10 +27,15 @@ declare global {
   }
 }
 
+// The placeholder from .env.example counts as unconfigured — a copied-but-not-
+// edited .env.local should show the setup hint, not a button that 401s.
+const PLACEHOLDER_CLIENT_ID = 'your-client-id.apps.googleusercontent.com'
+const configured: string = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? ''
+
 /** Must match the GOOGLE_CLIENT_ID the backend verifies tokens against, or every
  *  sign-in fails the audience check. Empty when unconfigured — the UI says so
  *  rather than rendering a button that cannot work. */
-export const GOOGLE_CLIENT_ID: string = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? ''
+export const GOOGLE_CLIENT_ID: string = configured === PLACEHOLDER_CLIENT_ID ? '' : configured
 
 let loader: Promise<GoogleIdentity> | null = null
 

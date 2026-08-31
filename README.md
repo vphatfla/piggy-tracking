@@ -120,12 +120,28 @@ Google OAuth, with a short-lived access token and a rotating refresh token.
 
 The frontend keeps the access token in React state, never `localStorage`.
 
-Set up a Google OAuth **Web application** client at
-[console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials)
-with `http://localhost:5173` as an authorised JavaScript origin, then put the
-same client ID in **both** the root `.env` (`GOOGLE_CLIENT_ID`) and
+### Getting a client ID
+
+At [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials):
+
+1. **OAuth consent screen** → User type **External**. While publishing status is
+   **Testing**, only accounts listed under **Test users** can sign in — add your
+   own there or you will get `access_denied`.
+2. **Create credentials → OAuth client ID → Web application**.
+3. Add `http://localhost:5173` as an **authorised JavaScript origin**. Leave
+   **authorised redirect URIs empty** — Google Identity Services' `renderButton`
+   uses a popup, not a redirect. A missing origin shows up as `origin_mismatch`
+   in the browser console.
+
+Put that client ID in **both** the root `.env` (`GOOGLE_CLIENT_ID`) and
 `frontend/.env.local` (`VITE_GOOGLE_CLIENT_ID`) — the backend rejects tokens
-minted for any other audience.
+minted for any other audience. The backend checks the value's shape at startup
+and refuses to boot on the placeholder, so a forgotten step fails in
+`docker compose logs backend` rather than as an unexplained 401 at sign-in.
+
+Signing in with a Google account that has never been seen creates the user
+automatically — there is no separate sign-up flow. The seeded demo user cannot
+be signed in as; its `googleId` is a made-up string, not a real Google `sub`.
 
 ## Data model
 
