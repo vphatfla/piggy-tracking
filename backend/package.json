@@ -33,5 +33,9 @@
     "typescript": "^5.9.3"
   },
   "private": true,
-  "type": "module"
+  "type": "module",
+  "overrides": {
+    "mysql2": "^3.24.3",
+    "deepmerge-ts": "^8.0.2"
+  }
 }

@@ -241,6 +241,13 @@ routine "no session" 401 from a real failure.
 take a `userId` any more: the backend derives it from the token, so there is no
 id to pass and no way to ask for someone else's rows.
 
+`request()` always parses a JSON body, so a **204 route cannot go through it** —
+`deleteTransaction` and `deleteBudget` are hand-written `fetch` calls that
+duplicate its error handling and return `void`. A new endpoint answering 204
+needs the same treatment; routing it through `request()` throws on the empty
+body *after* the write has already happened, which reads as a failed delete that
+actually succeeded.
+
 `ApiError` declares `status` as a field and assigns it in the constructor rather
 than using a parameter property — `tsconfig.app.json` sets `erasableSyntaxOnly`,
 which rejects the shorthand.

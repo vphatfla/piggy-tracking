@@ -14,7 +14,8 @@ frontend/            React 19 + Vite 8 SPA. Runs NATIVELY — never containerise
 backend/             Express 5 + Prisma 7 API. Containerised.
   prisma/            schema.prisma, migrations/, seed.ts  ← the database lives here
 docker-compose.yml   Two services only: db + backend.
-docs/                Design records for things decided but not built yet.
+docs/                Design records: the reasoning behind a decision, kept
+                     whether or not it is built yet.
 .env                 Gitignored. Copy from .env.example.
 ```
 

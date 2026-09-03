@@ -89,8 +89,8 @@ Five models. See `prisma/schema.prisma` for the authoritative definition.
   existing value. The written migration adds, backfills (promoting distinct
   strings to rows, then giving every existing user the starter set), and only
   then drops. The literal `'Uncategorised'` is *excluded* from the promotion —
-  it is the absence of a category, and a row for it would collect a budget
-  line in M5.
+  it is the absence of a category, and a row for it would have collected a
+  budget line of its own once budgets landed.
 
 - **Budget** — one spending limit for one `(categoryId, month)`. Rows are
   sparse and **inherit forward**: the limit in force for month M is the row with
