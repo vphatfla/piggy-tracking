@@ -79,6 +79,26 @@ export function requiredDate(body: unknown, field: string): Date {
   return date
 }
 
+/** Parses a budget month ("2026-09") for the VARCHAR(7) column. Kept as a
+ *  string rather than a Date on purpose: it sorts lexicographically and
+ *  compares with <= exactly as the budget inheritance lookup needs, and carries
+ *  no timezone to convert wrongly. */
+export function requiredMonth(body: unknown, field: string): string {
+  const value = (body as Record<string, unknown> | null)?.[field]
+  if (typeof value !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) {
+    throw badRequest(`${field} is required and must be a month in YYYY-MM form`)
+  }
+  return value
+}
+
+/** The optional twin of `requiredDate`, for a field that may be absent because
+ *  something else supplies a default. Same UTC parse, same reason. */
+export function optionalDate(body: unknown, field: string): Date | null {
+  const value = (body as Record<string, unknown> | null)?.[field]
+  if (value === undefined || value === null || value === '') return null
+  return requiredDate(body, field)
+}
+
 // --- response shaping ------------------------------------------------------
 
 const toDateOnly = (d: Date) => d.toISOString().slice(0, 10)
@@ -92,10 +112,25 @@ export const serializeReceipt = <T extends { date: Date; totalAmount: Prisma.Dec
   totalAmount: r.totalAmount.toFixed(2),
 })
 
-export const serializeTransaction = <T extends { amount: Prisma.Decimal }>(t: T) => ({
-  ...t,
-  amount: t.amount.toFixed(2),
-})
+/** The joined category is flattened to a name rather than nested, because every
+ *  other field on this contract is flat. `category` is null when the row's
+ *  category was deleted — `categoryId` is SET NULL, and the spending survives
+ *  without its label. Callers that did not `include` the relation get
+ *  `category: null` too, which is the same thing as far as a client is
+ *  concerned: no name to show. */
+export const serializeTransaction = <
+  T extends { amount: Prisma.Decimal; date: Date; category?: { name: string } | null },
+>(
+  t: T,
+) => {
+  const { category, ...rest } = t
+  return {
+    ...rest,
+    date: toDateOnly(t.date),
+    amount: t.amount.toFixed(2),
+    category: category?.name ?? null,
+  }
+}
 
 /** Strips `googleId` — it is an authentication identifier, and nothing outside
  *  the sign-in flow has any reason to see it. */

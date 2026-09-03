@@ -5,6 +5,8 @@ import { env } from './env.ts'
 import { Prisma } from './generated/prisma/client.ts'
 import { HttpError } from './http.ts'
 import { authRouter } from './routes/auth.ts'
+import { budgetsRouter } from './routes/budgets.ts'
+import { categoriesRouter } from './routes/categories.ts'
 import { receiptsRouter } from './routes/receipts.ts'
 import { transactionsRouter } from './routes/transactions.ts'
 import { usersRouter } from './routes/users.ts'
@@ -28,6 +30,8 @@ export function createApp() {
   app.use('/api/auth', authRouter)
   app.use('/api/users', usersRouter)
   app.use('/api/receipts', receiptsRouter)
+  app.use('/api/categories', categoriesRouter)
+  app.use('/api/budgets', budgetsRouter)
   app.use('/api/transactions', transactionsRouter)
 
   app.use((_req, res) => {

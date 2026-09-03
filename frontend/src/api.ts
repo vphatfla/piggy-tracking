@@ -31,13 +31,37 @@ export type Receipt = {
   createdAt: string
 }
 
+export type Category = {
+  id: number
+  userId: number
+  name: string
+  createdAt: string
+}
+
+/** A spending limit *in effect* for one category in one month — not
+ *  necessarily a row set for that month. `month` is the month the limit was
+ *  set for and `inherited` says whether that differs from the month asked
+ *  about, because editing an inherited limit writes a new row for the viewed
+ *  month rather than rewriting history. */
+export type Budget = {
+  categoryId: number
+  amount: string // DECIMAL(10,2), see Receipt.totalAmount
+  month: string // YYYY-MM
+  inherited: boolean
+}
+
 export type Transaction = {
   id: number
   userId: number
   receiptId: number | null
+  date: string // YYYY-MM-DD — when the money was spent, not when the row was made
   merchantName: string
   amount: string // DECIMAL(10,2), see Receipt.totalAmount
-  category: string
+  categoryId: number | null
+  /** The category's name, flattened from the relation. Null means the category
+   *  was deleted — the API requires one on create, so this is never "the user
+   *  didn't pick". Render it as "Uncategorised". */
+  category: string | null
   createdAt: string
 }
 
@@ -108,10 +132,98 @@ export const getMe = (token: string) => request<UserProfile>('/api/users/me', {}
 
 export const getReceipts = (token: string) => request<Receipt[]>('/api/receipts', {}, token)
 
-export const getTransactions = (token: string) =>
-  request<Transaction[]>('/api/transactions', {}, token)
+/** `range` is inclusive at both ends and optional — omitting it still means
+ *  "every transaction". The month view is a preset over this one filter. */
+export const getTransactions = (token: string, range?: { from: string; to: string }) =>
+  request<Transaction[]>(
+    `/api/transactions${range ? `?from=${range.from}&to=${range.to}` : ''}`,
+    {},
+    token,
+  )
 
 export const createTransaction = (
   token: string,
-  body: { merchantName: string; amount: string; category: string; receiptId?: number | null },
+  body: {
+    merchantName: string
+    amount: string
+    categoryId: number
+    date: string
+    receiptId?: number | null
+  },
 ) => request<Transaction>('/api/transactions', { method: 'POST', body: JSON.stringify(body) }, token)
+
+/** Partial by design: only the fields present are written. Omitting a field
+ *  leaves it alone; sending `receiptId: null` or `categoryId: null` explicitly
+ *  clears it. Do not "helpfully" send the whole object. */
+export const updateTransaction = (
+  token: string,
+  id: number,
+  patch: Partial<{
+    merchantName: string
+    amount: string
+    categoryId: number | null
+    date: string
+    receiptId: number | null
+  }>,
+) =>
+  request<Transaction>(
+    `/api/transactions/${id}`,
+    { method: 'PATCH', body: JSON.stringify(patch) },
+    token,
+  )
+
+/** 204, no body — so this one cannot go through `request`, which always parses
+ *  JSON. Hard delete: there is no trash to restore from. */
+export async function deleteTransaction(token: string, id: number): Promise<void> {
+  const res = await fetch(`${API_URL}/api/transactions/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null)
+    throw new ApiError(
+      res.status,
+      `DELETE /api/transactions/${id} failed: ${res.status}${detail?.error ? ` — ${detail.error}` : ''}`,
+    )
+  }
+}
+
+export const getCategories = (token: string) => request<Category[]>('/api/categories', {}, token)
+
+/** Find-or-create on the server: sending a name that already exists (in any
+ *  case) returns the existing row rather than failing, so the caller can always
+ *  treat the response as "the category to select". */
+export const createCategory = (token: string, name: string) =>
+  request<Category>('/api/categories', { method: 'POST', body: JSON.stringify({ name }) }, token)
+
+// --- budgets ---------------------------------------------------------------
+
+/** Effective limits for `month`: one entry per category that has one, so a
+ *  category absent from the result has no limit yet — which is not the same as
+ *  a limit of zero. */
+export const getBudgets = (token: string, month: string) =>
+  request<Budget[]>(`/api/budgets?month=${month}`, {}, token)
+
+/** Upsert of one (categoryId, month) row. PUT, not POST: setting the same
+ *  limit twice has to mean the same as setting it once. */
+export const putBudget = (
+  token: string,
+  body: { categoryId: number; month: string; amount: string },
+) => request<Budget>('/api/budgets', { method: 'PUT', body: JSON.stringify(body) }, token)
+
+/** Removes the row set *for that exact month*. The category then falls back to
+ *  whatever earlier month it inherits from — which may be another number, not
+ *  "no budget". 204, so it cannot go through `request`. */
+export async function deleteBudget(token: string, categoryId: number, month: string): Promise<void> {
+  const res = await fetch(`${API_URL}/api/budgets/${categoryId}?month=${month}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null)
+    throw new ApiError(
+      res.status,
+      `DELETE /api/budgets/${categoryId} failed: ${res.status}${detail?.error ? ` — ${detail.error}` : ''}`,
+    )
+  }
+}

@@ -4,7 +4,8 @@ Expense/receipt tracker. Full-stack TypeScript monorepo, npm only (no yarn/pnpm)
 
 Area-specific guides load automatically when you touch those directories:
 - `backend/CLAUDE.md` — Express + Prisma + **the database/schema/migrations**
-- `frontend/CLAUDE.md` — React + Vite + Tailwind + PWA
+- `frontend/CLAUDE.md` — React + Vite + Tailwind + PWA, and **the Apple-HIG
+  design language**: the two themes, the colour tokens, type scale and spacing
 
 ## Layout
 
@@ -13,6 +14,7 @@ frontend/            React 19 + Vite 8 SPA. Runs NATIVELY — never containerise
 backend/             Express 5 + Prisma 7 API. Containerised.
   prisma/            schema.prisma, migrations/, seed.ts  ← the database lives here
 docker-compose.yml   Two services only: db + backend.
+docs/                Design records for things decided but not built yet.
 .env                 Gitignored. Copy from .env.example.
 ```
 
@@ -30,7 +32,7 @@ cd frontend && npm install            # first time only; backend deps live in it
 docker compose up --build             # terminal 1 → db :5432, API :3000
 cd frontend && npm run dev            # terminal 2 → UI :5173
 
-docker compose exec backend npm run seed    # example data (user 1 + receipt + 2 txns)
+docker compose exec backend npm run seed    # example data (user 1, 7 categories, receipt, 2 txns, 3 budgets)
 ```
 
 `docker compose up` runs `prisma migrate deploy` before the server starts, so the
@@ -59,6 +61,57 @@ run on the host. The backend **container** builds its own URL from the
 Changing the database name/user means updating both places.
 
 Never commit `.env`. When you add a key, add it to `.env.example` too.
+
+## The product shape
+
+Four decisions that the schema and the UI both depend on. They are settled;
+re-deriving them from the code is slower than reading this.
+
+- **The budget period is a calendar month, and the month is the unit of the
+  screen.** The dashboard opens on the current month and shows that month's
+  transactions and total. Multi-month is the same API call with wider bounds —
+  `GET /api/transactions` takes `?from=&to=`, and there is deliberately no
+  `?month=` endpoint for the two to drift apart.
+- **A transaction carries its own spending date**, `Transaction.date`, which is
+  not `createdAt`. Diverging those puts money in the wrong month.
+- **Every transaction the app creates is categorised.** `Transaction.categoryId`
+  is nullable in the database only so deleting a category cannot delete the
+  spending; the API requires one on create. NULL means "its category was
+  deleted", never "the user skipped it".
+- **Budget limits are per-category and per-month, and they inherit forward.**
+  Not one overall cap, and not a single `budget` column on the category — that
+  would retroactively re-score past months. The limit in force for a month is
+  the most recent row at or before it, so editing an inherited limit inserts a
+  row for the month in view and leaves history scoring as it did. Built; the
+  reasoning behind every part of it is `docs/budgets.md`, which is still the
+  file to read before changing the model.
+
+## Where this is going
+
+Shipped: spending dates, the month view with optional sorting, categories with
+an inline-create picker, tap-to-expand editing and deletion, and per-category
+monthly budgets with a spent-vs-limit breakdown.
+
+The two roadmap milestones were built in the other order, and that is worth
+knowing: **budgets landed first, and the breakdown came with them** — the
+dashboard already holds one month of transactions, so grouping them by category
+in the client cost nothing and needed no endpoint.
+
+What is left:
+
+1. **Spending by category, on the server** — `GET /api/transactions/summary?from=&to=`
+   aggregating in Postgres (`GROUP BY categoryId`, `SUM(amount)`), returning the
+   `categoryId` as well as the name because budgets join on it, and **including
+   a bucket for `categoryId IS NULL`** or the parts stop summing to the whole.
+   Not urgent: it buys nothing while the client already has the rows. It becomes
+   necessary the day a month's transactions are paginated, or the day a range
+   wider than one month needs a total — which is also when the client-side sort
+   has to move. Both are marked in `frontend/CLAUDE.md`.
+2. **An overall monthly cap**, if it is ever wanted. Deliberately absent today:
+   limits are per-category only, so the month header shows spending with nothing
+   to compare it against. If it is added, read the NULL-`categoryId` trap in
+   `docs/budgets.md` first — the obvious implementation silently enforces
+   nothing.
 
 ## Auth
 
@@ -118,6 +171,8 @@ change** that makes them stale, not afterwards:
 | routes, status codes, request/response shapes | `backend/CLAUDE.md` + `README.md` |
 | `.env` keys, ports, compose services | this file + `.env.example` + `README.md` |
 | auth: token lifetimes, cookie flags, what a route trusts | this file's Auth section + `backend/CLAUDE.md` |
+| a settled product decision, or a milestone shipped | this file's Product shape / Where this is going |
+| anything about budgets — the model, inheritance, the routes | `docs/budgets.md` |
 
 Record the *why* and the traps — version quirks, non-obvious constraints,
 decisions that look wrong but aren't. Do not restate what the code already says;

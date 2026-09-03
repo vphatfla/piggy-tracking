@@ -49,14 +49,73 @@ recall are for the old layout and will be wrong here.
 
 ## Data model
 
-Three models. See `prisma/schema.prisma` for the authoritative definition.
+Five models. See `prisma/schema.prisma` for the authoritative definition.
 
 - **User** — Google OAuth is the only auth method, so there is **no password
   column**; `googleId` holds the Google `sub` claim. `email` and `googleId` are
   both unique.
 - **Receipt** — belongs to a User. `date` is a calendar `DATE`, `totalAmount` is
   `DECIMAL(10,2)`.
-- **Transaction** — belongs to a User, and *optionally* to a Receipt.
+- **Transaction** — belongs to a User, and *optionally* to a Receipt. `date` is
+  a calendar `DATE`: **when the money was spent**, which is not `createdAt` (when
+  the row was entered). A budget period is a calendar month, so those diverging
+  puts spending in the wrong month. `DATE` and not a timestamp because a calendar
+  date has no timezone — "which month is this in" then has exactly one answer.
+  Required on POST unless a `receiptId` supplies it; the server never falls back
+  to its own "today", which would be a timezone guess about the user.
+  The `add_transaction_date` migration is hand-written for this reason: Prisma's
+  generated `ADD COLUMN ... NOT NULL` cannot run against a populated table, so it
+  adds nullable, backfills from `receipt.date` where there is one and
+  `createdAt::date` otherwise, then sets `NOT NULL`.
+- **Category** — a user-owned spending label, `@@unique([userId, name])`. Scoped
+  per user, so two people naming the same thing differently never have to be
+  reconciled; nothing in this app reads across users, and a global taxonomy
+  would be machinery serving no feature.
+
+  **`Transaction.categoryId` is nullable in the database but required by the
+  API.** Those are not in conflict: "every transaction is categorised" is a
+  creation-time rule, while NULL is reserved for a row whose category was later
+  deleted. Do not "fix" the column to `NOT NULL` — it would make deleting a
+  category impossible without deleting the spending.
+
+  **Category deliberately has no `budget` column.** A single limit per category
+  is retroactive: raising the groceries cap in June would silently re-score
+  January as under budget. Limits are per-month rows in `Budget` — below, and in
+  `docs/budgets.md`.
+
+  `add_category_table` is hand-ordered for the same class of reason as
+  `add_transaction_date`: Prisma's diff dropped `Transaction.category` in the
+  same statement that added `categoryId`, which would have discarded every
+  existing value. The written migration adds, backfills (promoting distinct
+  strings to rows, then giving every existing user the starter set), and only
+  then drops. The literal `'Uncategorised'` is *excluded* from the promotion —
+  it is the absence of a category, and a row for it would collect a budget
+  line in M5.
+
+- **Budget** — one spending limit for one `(categoryId, month)`. Rows are
+  sparse and **inherit forward**: the limit in force for month M is the row with
+  the greatest `month <= M`. That is the entire reason this is a table rather
+  than a column on Category — a past month keeps the number it was actually
+  judged against instead of being re-scored when the user changes their mind.
+  Editing an inherited limit **inserts a row for the viewed month**; it never
+  rewrites the older one.
+
+  Two things here must not be "simplified":
+
+  - **`categoryId` is `NOT NULL`.** A nullable one meaning "the overall budget"
+    looks like a free extension and is not: Postgres treats NULLs as distinct in
+    a unique index, so `@@unique([userId, categoryId, month])` would accept two
+    overall budgets for the same month and enforce nothing. An overall cap needs
+    a separate model or a partial index.
+  - **`month` is `VARCHAR(7)`** (`"2026-09"`), not a `DATE`. It sorts
+    lexicographically and compares with `<=` exactly as the inheritance lookup
+    needs, and carries no timezone to convert wrongly.
+
+  Inheritance is resolved **in JS, not in one clever query**: greatest-per-group
+  is a Postgres `DISTINCT ON`, which Prisma's `distinct` is not, and the row
+  count is one per category per time the user changed their mind. Revisit only
+  if that stops being tiny. The full design record, including what was
+  considered and rejected, is `docs/budgets.md`.
 
 Referential behaviour is intentional and load-bearing:
 
@@ -64,13 +123,20 @@ Referential behaviour is intentional and load-bearing:
 |---|---|
 | a User | **cascades** — their receipts and transactions are removed |
 | a Receipt | its transactions **survive** with `receiptId` set to `NULL` |
+| a Category | its transactions **survive** with `categoryId` set to `NULL`, but its budgets **cascade** |
 
 The rationale: a transaction is a record of money spent and stays true even if
-the receipt image is deleted. Do not "simplify" that to a cascade.
+the receipt image, or the label someone filed it under, is deleted. Do not
+"simplify" either to a cascade. The asymmetry on the last row is deliberate —
+money spent stays true without its label, but a limit for a category that no
+longer exists is meaningless.
 
-Indexed on `Receipt.userId`, `Transaction.userId`, `Transaction.receiptId`.
+Indexed on `Receipt.userId`, `Transaction.userId`, `Transaction.receiptId`,
+`Transaction.categoryId`, `Category.userId`, and `Transaction.(userId, date)` —
+the composite is what month and range queries hit. `Budget` has
+`@@index([userId, month])` for the same reason, plus the unique triple.
 
-A fourth model, **RefreshToken**, backs the session layer — see Auth below.
+A sixth model, **RefreshToken**, backs the session layer — see Auth below.
 Deleting a User cascades to it as well, so removing an account also removes
 every live session.
 
@@ -94,9 +160,37 @@ and `/api/transactions` mounts it router-wide. **A new user-data route must do
 the same and filter by `authedUserId(req)`** — `?userId=` and body `userId` were
 removed deliberately; do not bring them back as a convenience.
 
+`GET /api/transactions` takes optional `?from=` and `?to=`, **inclusive at both
+ends**, and applies neither when both are absent so a bare GET still means
+"everything". There is deliberately no `?month=` endpoint: the month view is a
+preset over this one filter and a multi-month range is the same call with wider
+bounds, whereas two endpoints computing the same window would drift.
+`optionalDate` is reused against `req.query` — it only indexes a field off an
+object, so query params validate through the same path as bodies, and a repeated
+`?from=a&from=b` arrives as an array and fails its `typeof` check.
+
 Ownership the FK cannot enforce needs an explicit check. `POST /api/transactions`
-verifies the supplied `receiptId` belongs to the caller, because the foreign key
-only proves the receipt exists, not whose it is.
+verifies that both the supplied `receiptId` **and** `categoryId` belong to the
+caller, because a foreign key only proves the row exists, not whose it is.
+Every future route taking a caller-supplied id of a user-owned row needs the
+same two lines — the happy path works fine without them, which is exactly why
+they get forgotten.
+
+**Scope a write by putting `userId` in the WHERE clause, not in a check before
+it.** `PATCH` and `DELETE /api/transactions/:id` use `updateMany` / `deleteMany`
+with `where: { id, userId }` and treat `count === 0` as a 404. The obvious
+`prisma.transaction.delete({ where: { id } })` would delete **any** user's row
+by id — the id alone is the primary key, and nothing else constrains it. A
+find-then-write pair would be correct but leaves a window between the two
+statements; this leaves none.
+
+**A PATCH body distinguishes an absent field from an explicit null.** The
+`optional*` helpers cannot: `optionalInt(body, 'receiptId')` returns `null` both
+when the field is missing and when it is `null`. On POST those mean the same
+thing, so the helpers are fine there. On PATCH they mean "leave it alone" and
+"detach the receipt", so every field is guarded by `'field' in body` and then
+parsed with the **required*** validator — an edited amount gets exactly the
+validation a created one does. An empty patch is a 400 rather than a no-op.
 
 There is **no `POST /api/users`**. Users are created exclusively by the Google
 flow, where `googleId` comes from a verified token. A create route taking a
@@ -163,7 +257,8 @@ Check for drift with `npx prisma migrate status` — expect
   middleware. CORS runs with `credentials: true`, which the browser only honours
   against an explicit origin allowlist — `CORS_ORIGIN` must name the frontend
   exactly, never `*`, or the refresh cookie is silently dropped.
-- `src/routes/{auth,users,receipts,transactions}.ts` — one router per concern.
+- `src/routes/{auth,users,receipts,transactions,categories,budgets}.ts` — one
+  router per concern.
 - `src/auth/` — `google.ts` (ID-token verification) and `tokens.ts` (access +
   refresh token lifecycle). `src/middleware/auth.ts` — `requireAuth`.
 - `src/http.ts` — shared parsing/validation helpers and the response serializers.
@@ -179,10 +274,24 @@ Check for drift with `npx prisma migrate status` — expect
 Never return a raw Prisma row for a model with money or dates on it.
 
 - `Decimal` → a fixed-2dp **string** (`"48.75"`). Floats lose cents.
-- `Receipt.date` (a `DATE`) → `"YYYY-MM-DD"`, not a timestamp.
+- `Receipt.date` and `Transaction.date` (both `DATE`) → `"YYYY-MM-DD"`, not a
+  timestamp.
+- An included relation is **flattened**, not nested: `serializeTransaction`
+  turns `category: { name }` into `category: string | null` alongside the raw
+  `categoryId`. Every other field on this contract is flat, and a client that
+  wants to group by category has the id without parsing an object. `null` means
+  the category was deleted — never "the user didn't pick one".
 
 `serializeReceipt` / `serializeTransaction` in `src/http.ts` do this. A new
 model with a `Decimal` or `DATE` column needs its own serializer.
+
+`Budget` is the exception that proves the rule: it has no serializer because a
+`GET /api/budgets` row is never a Prisma row. It is an *effective* limit —
+`{ categoryId, amount, month, inherited }` — where `month` is the month the
+limit was **set for**, which is not the month asked about when `inherited` is
+true. Returning a bare amount would lose the difference between "set for
+September" and "carried over from March", and the UI needs it: editing an
+inherited limit writes a new row rather than editing history.
 
 ### Database errors → HTTP statuses
 

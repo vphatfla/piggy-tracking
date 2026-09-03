@@ -67,8 +67,15 @@ docker compose exec backend npm run seed
 | GET    | `/api/users/:id`         | bearer | Only your own id; `403` otherwise                |
 | GET    | `/api/receipts`          | bearer | Your receipts, newest first                      |
 | POST   | `/api/receipts`          | bearer | `{ date: "YYYY-MM-DD", totalAmount, receiptFileName? }` |
-| GET    | `/api/transactions`      | bearer | Your transactions, newest first                  |
-| POST   | `/api/transactions`      | bearer | `{ merchantName, amount, category, receiptId? }`  |
+| GET    | `/api/transactions`      | bearer | Your transactions, newest first; `?from=&to=` filters by date (inclusive) |
+| POST   | `/api/transactions`      | bearer | `{ merchantName, amount, categoryId, date: "YYYY-MM-DD", receiptId? }` |
+| PATCH  | `/api/transactions/:id`  | bearer | Partial — only the fields present are written    |
+| DELETE | `/api/transactions/:id`  | bearer | `204`. Hard delete, no undo                      |
+| GET    | `/api/categories`        | bearer | Your categories, A–Z                             |
+| POST   | `/api/categories`        | bearer | `{ name }` — find-or-create; `200` if it existed, `201` if made |
+| GET    | `/api/budgets`           | bearer | `?month=YYYY-MM` (required) — the limit *in effect* per category |
+| PUT    | `/api/budgets`           | bearer | `{ categoryId, month, amount }` — upserts one month's limit |
+| DELETE | `/api/budgets/:categoryId` | bearer | `?month=YYYY-MM`. `204`. Removes that month's row only |
 
 "bearer" means `Authorization: Bearer <access token>`; "cookie" means the
 httpOnly `refreshToken` cookie, which browsers only send when the request is made
@@ -81,7 +88,30 @@ token.
 
 Money fields are `DECIMAL(10,2)` and are sent and returned as **strings**
 (`"48.75"`), never floats, so cents can't drift through binary rounding.
-Receipt `date` is a calendar `DATE` and serialises as `YYYY-MM-DD`.
+A transaction carries `categoryId` plus a flattened `category` name; `category`
+is `null` only when that category was later deleted, since the API requires one
+on create. `Receipt.date` and `Transaction.date` are calendar `DATE`s and
+serialise as `YYYY-MM-DD`. `Transaction.date` is **when the money was spent** — not
+`createdAt`, which is only when the row was entered. It is required on POST
+unless a `receiptId` is given, in which case it defaults to that receipt's date;
+the server never substitutes its own "today", which would be a timezone guess
+about the user.
+
+Budget limits are **per category, per month, and inherit forward**: the limit in
+effect for a month is the most recent row at or before it. `GET` therefore
+returns `{ categoryId, amount, month, inherited }`, where `month` is the month
+the limit was *set* for — `inherited: true` means it was carried over from
+there. A category with no limit at or before the month asked about is **absent**
+from the response, which is not the same as a limit of zero. `PUT` for a month
+that inherited inserts a new row and leaves the older one scoring the months it
+applied to; `DELETE` removes one month's row, after which the category falls
+back to inheriting again. See `docs/budgets.md`.
+
+`PATCH` distinguishes an **absent** field from an explicit **null**: omitting
+`categoryId` or `receiptId` leaves it alone, while sending `null` clears it.
+Present fields are validated exactly as they are on create. A patch with no
+recognised field is a `400`. Both `PATCH` and `DELETE` answer `404` for an id
+that is not yours — ownership is part of the statement, not a separate check.
 
 Error responses are `{ "error": string }`. Database integrity failures map to
 meaningful statuses: `409` for a duplicate `email`/`googleId`, `400` for a
@@ -97,7 +127,7 @@ curl -H "Authorization: Bearer $TOKEN" localhost:3000/api/users/me
 
 curl -X POST localhost:3000/api/transactions \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"merchantName":"Blue Bottle","amount":"6.25","category":"Coffee"}'
+  -d '{"merchantName":"Blue Bottle","amount":"6.25","categoryId":3,"date":"2026-09-02"}'
 
 curl -H "Authorization: Bearer $TOKEN" localhost:3000/api/transactions
 ```
@@ -145,22 +175,41 @@ be signed in as; its `googleId` is a made-up string, not a real Google `sub`.
 
 ## Data model
 
-Four tables. Three come from the `replace_note_with_core_models` migration:
+Six tables. Three come from the `replace_note_with_core_models` migration:
 
 - **User** — Google OAuth only, so no password column; `email` and `googleId`
   are both unique.
 - **Receipt** — belongs to a User. Deleting the user **cascades**, removing
   their receipts.
-- **Transaction** — belongs to a User, and *optionally* to a Receipt. Deleting
-  the user cascades; deleting a receipt sets `receiptId` to **NULL** so the
-  spending record survives without its receipt.
+- **Transaction** — belongs to a User, and *optionally* to a Receipt and a
+  Category. Carries its own `date` (the spending date). Deleting the user
+  cascades; deleting a receipt sets `receiptId` to **NULL** so the spending
+  record survives without its receipt — and keeps its date, which is why the
+  date is copied from the receipt rather than read through the relation.
+  Deleting a category sets `categoryId` to **NULL** for the same reason.
+
+- **Category** — a user-owned spending label (`add_category_table` migration),
+  unique per `(userId, name)`. `Transaction.categoryId` is nullable in the
+  database but **required by the API on create**: NULL means "the category was
+  deleted", not "the user skipped it". Categories carry no budget column —
+  limits are per-month rows in a separate model, see `docs/budgets.md`.
+
+- **Budget** — one spending limit for one `(userId, categoryId, month)`
+  (`add_budget_table` migration), unique on that triple. `month` is a
+  `VARCHAR(7)` `"YYYY-MM"`, not a DATE — it compares with `<=` exactly as the
+  inheritance lookup needs and carries no timezone. Rows are sparse and inherit
+  forward, which is why this is a table and not a column on Category: a single
+  limit per category would retroactively re-score past months. Deleting a
+  category **cascades** its budgets, unlike its transactions.
 
 - **RefreshToken** — one row per issued session token (`add_refresh_tokens`
   migration). Stores `sha256(token)`, never the token. Deleting the user
   cascades, so removing an account ends every session.
 
-Indexed on `Receipt.userId`, `Transaction.userId`, `Transaction.receiptId`, and
-`RefreshToken.userId`.
+Indexed on `Receipt.userId`, `Transaction.userId`, `Transaction.receiptId`,
+`Transaction.categoryId`, `Category.userId`, `RefreshToken.userId`,
+`Budget.(userId, month)`, and `Transaction.(userId, date)` — the composites are
+for month/range queries.
 
 ## Backend
 
@@ -215,8 +264,13 @@ The API base URL defaults to `http://localhost:3000`; override with `VITE_API_UR
 in `frontend/.env.local` (see `frontend/.env.example`).
 
 `src/App.tsx` is a thin end-to-end smoke screen, not real UI: it restores or
-starts a session, lists **your** transactions marking each with its receipt or
-`no receipt`, and the form posts to `POST /api/transactions`. Note the seeded
+starts a session and shows **one month at a time** — a month stepper, that
+month's total, and its transactions, which can be sorted by date or amount. The
+form posts to `POST /api/transactions` and requires a category, picked from a
+dropdown that can also create one inline. Tapping a row expands it in place to
+edit its fields or delete it. Above the form, a per-category breakdown shows
+spending against that month's budgets, and the sliders icon beside it sets
+them. Note the seeded
 demo user cannot be signed in as — its `googleId` is a placeholder string, not a
 real Google `sub`.
 

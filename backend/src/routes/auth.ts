@@ -9,6 +9,7 @@ import {
   revokeRefreshToken,
   signAccessToken,
 } from '../auth/tokens.ts'
+import { DEFAULT_CATEGORIES } from '../categories.ts'
 import { HttpError, requiredString, serializeUser } from '../http.ts'
 import { authedUserId, requireAuth } from '../middleware/auth.ts'
 import { prisma } from '../prisma.ts'
@@ -33,6 +34,11 @@ authRouter.post('/google', async (req, res, next) => {
         email: profile.email,
         firstName: profile.givenName,
         lastName: profile.familyName,
+        // Nested in the create rather than written afterwards, so the starter
+        // categories inherit the upsert's race-safety and never run for a
+        // returning user — `update: {}` leaves an existing account's own list
+        // alone, including categories they have since deleted.
+        categories: { create: DEFAULT_CATEGORIES.map((name) => ({ name })) },
       },
     })
 

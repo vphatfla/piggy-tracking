@@ -1,3 +1,174 @@
 /* Tailwind v4 entrypoint — this single import replaces the old
    @tailwind base/components/utilities triple and the JS config file. */
 @import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Design tokens — see frontend/CLAUDE.md § Design language.
+
+   Two layers on purpose:
+     1. `--p-*` below hold the raw Apple system colours and switch with the
+        theme.
+     2. `@theme inline` maps semantic names onto them. `inline` is what makes
+        this work: it tells Tailwind to compile `bg-surface` down to
+        `background: var(--p-surface)` instead of baking today's hex in, so a
+        single utility class serves both themes and components need no `dark:`
+        variants at all.
+   --------------------------------------------------------------------------- */
+
+@theme inline {
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+
+  --color-bg: var(--p-bg);
+  --color-bg-grouped: var(--p-bg-grouped);
+  --color-surface: var(--p-surface);
+  --color-surface-raised: var(--p-surface-raised);
+
+  --color-label: var(--p-label);
+  --color-label-secondary: var(--p-label-secondary);
+  --color-label-tertiary: var(--p-label-tertiary);
+  --color-separator: var(--p-separator);
+
+  --color-accent: var(--p-accent);
+  --color-accent-text: var(--p-accent-text);
+  --color-on-accent: var(--p-on-accent);
+  --color-danger: var(--p-danger);
+  --color-danger-text: var(--p-danger-text);
+  --color-success: var(--p-success);
+  --color-link: var(--p-link);
+
+  /* Apple text styles. The paired `--line-height` is the leading from the
+     HIG table; never set a size without it. */
+  --text-title-lg: 34px;
+  --text-title-lg--line-height: 41px;
+  --text-title-2: 22px;
+  --text-title-2--line-height: 28px;
+  --text-headline: 17px;
+  --text-headline--line-height: 22px;
+  --text-body: 17px;
+  --text-body--line-height: 22px;
+  --text-subheadline: 15px;
+  --text-subheadline--line-height: 20px;
+  --text-footnote: 13px;
+  --text-footnote--line-height: 18px;
+  --text-caption: 12px;
+  --text-caption--line-height: 16px;
+
+  --radius-control: 10px;
+  --radius-card: 14px;
+
+  /* Themed, because a drop shadow is invisible on black — in dark mode a
+     raised surface is a lighter grey and nothing else. */
+  --shadow-card: var(--p-shadow-card);
+}
+
+/* Bright (daylight) — the default. */
+:root {
+  --p-bg: #ffffff;
+  --p-bg-grouped: #f2f2f7;
+  --p-surface: #ffffff;
+  --p-surface-raised: #f2f2f7;
+
+  --p-label: #000000;
+  --p-label-secondary: rgb(60 60 67 / 0.6);
+  --p-label-tertiary: rgb(60 60 67 / 0.3);
+  --p-separator: rgb(60 60 67 / 0.29);
+
+  --p-accent: #ff9500;
+  /* Orange on white is ~2.1:1 and fails text contrast. When orange has to BE
+     the text in the bright theme, it is this value, not --p-accent. */
+  --p-accent-text: #b45309;
+  /* Orange is a light fill in both themes, so its label is always dark:
+     white-on-orange is ~2:1, black-on-orange is ~10.6:1. */
+  --p-on-accent: #000000;
+  --p-danger: #ff3b30;
+  /* Same story as accent: system red is a fill colour. At 15px on white it is
+     ~3.1:1, so text uses the darker value. */
+  --p-danger-text: #b3261e;
+  --p-success: #34c759;
+  --p-link: #007aff;
+
+  --p-shadow-card: 0 1px 3px rgb(0 0 0 / 0.08);
+
+  /* Lets native controls, scrollbars and form widgets follow the theme too. */
+  color-scheme: light dark;
+}
+
+/* Dark (night). This media query IS the theme detection — it follows the OS
+   appearance on desktop and phone alike and re-evaluates live, with no JS and
+   nothing persisted. Dark is not the light palette dimmed: Apple brightens and
+   desaturates its accents for dark backgrounds, so these are different values. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --p-bg: #000000;
+    --p-bg-grouped: #000000;
+    --p-surface: #1c1c1e;
+    --p-surface-raised: #2c2c2e;
+
+    --p-label: #ffffff;
+    --p-label-secondary: rgb(235 235 245 / 0.6);
+    --p-label-tertiary: rgb(235 235 245 / 0.3);
+    --p-separator: rgb(84 84 88 / 0.65);
+
+    --p-accent: #ff9f0a;
+    --p-accent-text: #ff9f0a;
+    --p-on-accent: #000000;
+    --p-danger: #ff453a;
+    --p-danger-text: #ff453a;
+    --p-success: #30d158;
+    --p-link: #0a84ff;
+
+    --p-shadow-card: none;
+  }
+}
+
+/* Explicit overrides. Nothing sets `data-theme` today — the app follows the
+   system and offers no toggle — but these are the third state in the guide's
+   contract, so adding a toggle later is one line of JS and no CSS. */
+:root[data-theme='dark'] {
+  --p-bg: #000000;
+  --p-bg-grouped: #000000;
+  --p-surface: #1c1c1e;
+  --p-surface-raised: #2c2c2e;
+
+  --p-label: #ffffff;
+  --p-label-secondary: rgb(235 235 245 / 0.6);
+  --p-label-tertiary: rgb(235 235 245 / 0.3);
+  --p-separator: rgb(84 84 88 / 0.65);
+
+  --p-accent: #ff9f0a;
+  --p-accent-text: #ff9f0a;
+  --p-on-accent: #000000;
+  --p-danger: #ff453a;
+  --p-danger-text: #ff453a;
+  --p-success: #30d158;
+  --p-link: #0a84ff;
+
+  --p-shadow-card: none;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-label);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Motion explains a state change or it does not happen. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

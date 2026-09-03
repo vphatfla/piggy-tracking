@@ -25,6 +25,8 @@ model User {
 
   receipts      Receipt[]
   transactions  Transaction[]
+  categories    Category[]
+  budgets       Budget[]
   refreshTokens RefreshToken[]
 }
 
@@ -50,16 +52,82 @@ model Transaction {
   id           Int      @id @default(autoincrement())
   userId       Int
   receiptId    Int?
+  /// When the money was spent, as a calendar DATE — deliberately not
+  /// `createdAt`, which is only when the row was entered. A budget period is a
+  /// calendar month, so a date with no timezone is the only way "which month is
+  /// this in" has a single answer.
+  date         DateTime @db.Date
   merchantName String
   amount       Decimal  @db.Decimal(10, 2)
-  category     String
+  /// Nullable in the database but required by the API on create: "every
+  /// transaction is categorised" is a creation-time rule, while storage has to
+  /// permit NULL so deleting a category cannot delete the spending. A NULL here
+  /// means exactly one thing — the category this belonged to was deleted.
+  categoryId   Int?
   createdAt    DateTime @default(now())
 
-  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  receipt Receipt? @relation(fields: [receiptId], references: [id], onDelete: SetNull)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  receipt  Receipt?  @relation(fields: [receiptId], references: [id], onDelete: SetNull)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([receiptId])
+  @@index([userId, date])
+  @@index([categoryId])
+}
+
+/// A user-owned spending category. Scoped per user, so two people naming the
+/// same thing differently never have to be reconciled — nothing in this app
+/// reads across users.
+///
+/// Deliberately carries no `budget` column. A single limit per category would
+/// be retroactive: raising the groceries cap in June would silently re-score
+/// January as under budget. Limits are per-month rows in a separate `Budget`
+/// table — see docs/budgets.md.
+model Category {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  name      String
+  createdAt DateTime @default(now())
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+  budgets      Budget[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+/// A spending limit for one category in one month. Rows are sparse and
+/// *inherit forward*: the limit in effect for month M is the row with the
+/// greatest `month <= M`, so a past month keeps the number it was actually
+/// judged against instead of being re-scored when the user changes their mind.
+/// That is the whole reason this is a table and not a `budget` column on
+/// Category. See docs/budgets.md.
+///
+/// Two things here are load-bearing:
+/// - `categoryId` is NOT NULL and must stay that way. A nullable one meaning
+///   "the overall budget" looks tempting, but Postgres treats NULLs as distinct
+///   in a unique index, so @@unique would accept two overall budgets for the
+///   same month and enforce nothing.
+/// - `month` is VARCHAR(7) ("2026-09"), not a DATE: it sorts lexicographically
+///   and compares with <= exactly as the inheritance lookup needs, and carries
+///   no timezone to convert wrongly.
+model Budget {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  categoryId Int
+  month      String   @db.VarChar(7)
+  amount     Decimal  @db.Decimal(10, 2)
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Cascade, unlike Transaction's SetNull: money spent stays true without its
+  /// label, but a limit for a category that no longer exists is meaningless.
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, categoryId, month])
+  @@index([userId, month])
 }
 
 /// A refresh-token handle for one browser session. The raw token is only ever

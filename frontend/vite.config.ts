@@ -22,8 +22,11 @@ export default defineConfig({
         name: 'Piggy Tracking',
         short_name: 'Piggy',
         description: 'Piggy Tracking — full-stack TypeScript starter',
-        theme_color: '#0f172a',
-        background_color: '#0f172a',
+        // A manifest cannot be media-responsive, so these hold the bright
+        // theme's base; index.html's <meta name="theme-color"> pair is what
+        // actually follows the OS appearance at runtime.
+        theme_color: '#FFFFFF',
+        background_color: '#FFFFFF',
         display: 'standalone',
         start_url: '/',
         // Placeholder icons — swap these for real 192/512 PNGs before shipping.
