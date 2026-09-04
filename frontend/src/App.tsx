@@ -19,10 +19,12 @@ import {
   type Receipt,
   type Session,
   type Transaction,
+  type UserProfile,
 } from './api'
 import { formatDate, formatMoney, sumMoney, todayIso } from './format'
 import { addMonths, currentMonth, formatMonthLabel, monthBounds } from './month'
 import { SignIn } from './SignIn'
+import { applyThemePreference, getStoredThemePreference, type ThemePreference } from './theme'
 
 type SessionState =
   | { status: 'restoring' }
@@ -672,6 +674,257 @@ function EditPanel({
   )
 }
 
+const CheckIcon = () => (
+  <svg viewBox="0 0 24 24" className="size-4 text-accent-text" fill="none" aria-hidden>
+    <path d="M5 13l4 4 10-10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+
+const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+]
+
+/** Open state plus the outside-click/Escape dismissal every popover menu in
+ *  this file needs — first written for AccountMenu, now shared with
+ *  AddTransactionMenu rather than copied. Both listeners exist only while
+ *  `open` is true, matching the "no listener while closed" shape used
+ *  elsewhere; Escape returns focus to the trigger rather than dropping it. */
+function usePopoverMenu<TContainer extends HTMLElement, TTrigger extends HTMLElement>() {
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<TContainer>(null)
+  const triggerRef = useRef<TTrigger>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (e: PointerEvent) => {
+      if (!containerRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpen(false)
+        triggerRef.current?.focus()
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  return { open, setOpen, containerRef, triggerRef }
+}
+
+/** Top-right account menu: identity, appearance, sign-out. Replaces the old
+ *  bare name-text-plus-"Sign out"-button header. There is no router in this
+ *  app, so "account setting" here is deliberately just the read-only name/
+ *  email header below — not a screen to navigate to. */
+function AccountMenu({
+  user,
+  themePref,
+  onThemeChange,
+  onLogout,
+}: {
+  user: UserProfile
+  themePref: ThemePreference
+  onThemeChange: (pref: ThemePreference) => void
+  onLogout: () => void
+}) {
+  const { open, setOpen, containerRef, triggerRef } = usePopoverMenu<HTMLDivElement, HTMLButtonElement>()
+
+  const initials = `${user.firstName[0] ?? ''}${user.lastName[0] ?? ''}`.toUpperCase()
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Account menu"
+        className="flex size-11 shrink-0 items-center justify-center rounded-full bg-accent/12 text-headline font-semibold text-accent-text transition-opacity duration-200 ease-out hover:opacity-80 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+      >
+        {initials || '?'}
+      </button>
+
+      {open ? (
+        <div
+          role="menu"
+          aria-label="Account"
+          className="absolute top-full right-0 z-10 mt-2 w-64 origin-top-right rounded-card bg-surface-raised py-2 shadow-card transition-opacity duration-200 ease-out"
+        >
+          <div className="px-4 py-2">
+            <p className="truncate text-headline font-semibold text-label">
+              {user.firstName} {user.lastName}
+            </p>
+            <p className="truncate text-footnote text-label-secondary">{user.email}</p>
+          </div>
+
+          <div className="mx-2 my-1 border-t border-separator" />
+
+          <p className="px-4 pt-1 pb-0.5 text-footnote font-semibold tracking-wide text-label-secondary uppercase">
+            Appearance
+          </p>
+          {THEME_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              role="menuitemradio"
+              aria-checked={themePref === opt.value}
+              onClick={() => onThemeChange(opt.value)}
+              className="flex min-h-11 w-full items-center justify-between px-4 text-body text-label transition-colors duration-200 ease-out hover:bg-surface"
+            >
+              {opt.label}
+              {themePref === opt.value ? <CheckIcon /> : null}
+            </button>
+          ))}
+
+          <div className="mx-2 my-1 border-t border-separator" />
+
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false)
+              onLogout()
+            }}
+            className="flex min-h-11 w-full items-center px-4 text-body text-danger-text transition-colors duration-200 ease-out hover:bg-surface"
+          >
+            Sign out
+          </button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+const CloseIcon = () => (
+  <svg viewBox="0 0 24 24" className="size-4" fill="none" aria-hidden>
+    <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+  </svg>
+)
+
+const PlusIcon = () => (
+  <svg viewBox="0 0 24 24" className="size-5" fill="none" aria-hidden>
+    <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+  </svg>
+)
+
+const PencilIcon = () => (
+  <svg viewBox="0 0 24 24" className="size-5 text-accent-text" fill="none" aria-hidden>
+    <path
+      d="M4 20l1-4.5L15.5 5 19 8.5 8.5 19 4 20Z"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+)
+
+const CameraIcon = () => (
+  <svg viewBox="0 0 24 24" className="size-5 text-label-tertiary" fill="none" aria-hidden>
+    <path
+      d="M4 8.5A1.5 1.5 0 0 1 5.5 7H8l1-2h6l1 2h2.5A1.5 1.5 0 0 1 20 8.5V17a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17V8.5Z"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinejoin="round"
+    />
+    <circle cx="12" cy="12.5" r="3.25" stroke="currentColor" strokeWidth="1.8" />
+  </svg>
+)
+
+const UploadIcon = () => (
+  <svg viewBox="0 0 24 24" className="size-5 text-label-tertiary" fill="none" aria-hidden>
+    <path
+      d="M12 15V4m0 0 4 4m-4-4-4 4M5 16v2.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V16"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+)
+
+/** The "+" beside the month total: the one place a transaction can be
+ *  started. Three ways to get a transaction in are named up front — manual,
+ *  scan, upload — because that is the real shape of the feature even though
+ *  only manual is built; a plain "Add" button would have had to silently
+ *  become this menu later; more scope up front so nothing does. Scan and
+ *  Upload are visibly future work (a "Soon" tag, no handler) rather than
+ *  hidden, so the roadmap is honest about what is coming without pretending
+ *  it works today. */
+function AddTransactionMenu({ onManual }: { onManual: () => void }) {
+  const { open, setOpen, containerRef, triggerRef } = usePopoverMenu<HTMLDivElement, HTMLButtonElement>()
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Add a transaction"
+        className={`flex size-11 shrink-0 items-center justify-center rounded-full transition-colors duration-200 ease-out focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none ${
+          open ? 'bg-accent text-on-accent' : 'bg-accent/12 text-accent-text hover:bg-accent/20'
+        }`}
+      >
+        <PlusIcon />
+      </button>
+
+      {open ? (
+        <div
+          role="menu"
+          aria-label="Add a transaction"
+          className="absolute top-full right-0 z-10 mt-2 w-64 origin-top-right rounded-card bg-surface-raised py-2 shadow-card transition-opacity duration-200 ease-out"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false)
+              onManual()
+            }}
+            className="flex min-h-11 w-full items-center gap-3 px-4 text-body text-label transition-colors duration-200 ease-out hover:bg-surface"
+          >
+            <PencilIcon />
+            Add manually
+          </button>
+
+          {/* Named and visible rather than omitted, so the menu describes the
+              real three-way shape of the feature — see the component doc
+              comment. Not real <button disabled> elements: a disabled control
+              is skipped by VoiceOver's rotor as if it weren't there, which
+              would hide the "Soon" label along with it. role="menuitem" with
+              aria-disabled keeps it announced, just not actionable. */}
+          <div
+            role="menuitem"
+            aria-disabled="true"
+            className="flex min-h-11 w-full items-center gap-3 px-4 text-body text-label-tertiary"
+          >
+            <CameraIcon />
+            <span className="flex-1">Scan a receipt</span>
+            <span className="text-caption font-semibold tracking-wide text-label-tertiary uppercase">Soon</span>
+          </div>
+          <div
+            role="menuitem"
+            aria-disabled="true"
+            className="flex min-h-11 w-full items-center gap-3 px-4 text-body text-label-tertiary"
+          >
+            <UploadIcon />
+            <span className="flex-1">Upload a receipt</span>
+            <span className="text-caption font-semibold tracking-wide text-label-tertiary uppercase">Soon</span>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function Dashboard({ session, onLogout }: { session: Session; onLogout: () => void }) {
   const { accessToken, user } = session
   const [month, setMonth] = useState(currentMonth())
@@ -687,6 +940,16 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
   const [categories, setCategories] = useState<Category[]>([])
   const [budgets, setBudgets] = useState<Budget[]>([])
   const [editingBudgets, setEditingBudgets] = useState(false)
+  // Seeded from localStorage (via the inline index.html script, which already
+  // applied it before first paint) so this state and the DOM start in
+  // agreement — applyThemePreference is the only thing that touches either
+  // afterward. See src/theme.ts.
+  const [themePref, setThemePref] = useState<ThemePreference>(() => getStoredThemePreference())
+  // The manual-entry form is closed by default now that it's one of three
+  // named ways to add a transaction, chosen from AddTransactionMenu, rather
+  // than the only thing that could ever sit here.
+  const [addingTransaction, setAddingTransaction] = useState(false)
+  const merchantInputRef = useRef<HTMLInputElement>(null)
   // null means "nothing picked yet, follow the default" — see selectedCategory.
   const [categoryId, setCategoryId] = useState<number | null>(null)
   const [merchant, setMerchant] = useState('')
@@ -855,17 +1118,20 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       <div className="mx-auto w-full max-w-xl space-y-6 px-4 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-5">
         <header>
           <div className="flex items-center justify-between gap-3">
-            <p className="min-w-0 truncate text-footnote text-label-secondary">
-              {user.firstName} {user.lastName}
-            </p>
-            <button
-              onClick={onLogout}
-              // Negative margin keeps the label optically flush while the 44px
-              // hit area required by the HIG extends past it.
-              className="-mr-3 flex min-h-11 shrink-0 items-center rounded-control px-3 text-body text-accent-text transition-opacity duration-200 ease-out hover:opacity-70 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
-            >
-              Sign out
-            </button>
+            {/* 17pt semibold is Apple's own compact nav-bar title size — this
+                sits at that weight rather than the Large Title size used below
+                for the month, on purpose: the brand mark is a quiet anchor,
+                not the loudest thing on screen (that's the money). */}
+            <p className="min-w-0 truncate text-headline font-semibold text-label">Piggy Tracking</p>
+            <AccountMenu
+              user={user}
+              themePref={themePref}
+              onThemeChange={(pref) => {
+                applyThemePreference(pref)
+                setThemePref(pref)
+              }}
+              onLogout={onLogout}
+            />
           </div>
 
           <div className="mt-2 flex items-center justify-between gap-2">
@@ -884,14 +1150,25 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
             </div>
           </div>
 
-          <div className={`transition-opacity duration-200 ease-out ${dim}`}>
-            <p className="mt-2 text-footnote text-label-secondary">Total spent</p>
-            <p className="text-title-lg font-bold tracking-tight tabular-nums text-label">
-              {formatMoney(total)}
-            </p>
-            <p className="mt-1 text-footnote text-label-tertiary">
-              {transactions.length} {transactions.length === 1 ? 'transaction' : 'transactions'}
-            </p>
+          <div className={`mt-2 flex items-start justify-between gap-2 transition-opacity duration-200 ease-out ${dim}`}>
+            <div className="min-w-0">
+              <p className="text-footnote text-label-secondary">Total spent</p>
+              <p className="text-title-lg font-bold tracking-tight tabular-nums text-label">
+                {formatMoney(total)}
+              </p>
+              <p className="mt-1 text-footnote text-label-tertiary">
+                {transactions.length} {transactions.length === 1 ? 'transaction' : 'transactions'}
+              </p>
+            </div>
+            {/* Immediately beside the total, not buried below the fold in the
+                transaction list: this is the one action every visit to the
+                dashboard exists to support. */}
+            <AddTransactionMenu
+              onManual={() => {
+                setAddingTransaction(true)
+                requestAnimationFrame(() => merchantInputRef.current?.focus())
+              }}
+            />
           </div>
         </header>
 
@@ -963,44 +1240,65 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
           )}
         </section>
 
-        <form onSubmit={onSubmit} className="space-y-2 rounded-card bg-surface p-2 shadow-card">
-          <input
-            value={merchant}
-            onChange={(e) => setMerchant(e.target.value)}
-            placeholder="Merchant"
-            aria-label="Merchant"
-            className={`${inputClasses} w-full`}
-          />
-          <CategorySelect
-            categories={categories}
-            value={selectedCategory}
-            onChange={setCategoryId}
-            onCreate={onAddCategory}
-          />
-          <div className="flex items-center gap-2">
+        {/* Disclosure, not a modal — same reasoning as EditPanel and
+            BudgetEditor: one more overlay primitive isn't worth it for a form
+            that already lives inline. Chosen from AddTransactionMenu; closing
+            it (Cancel or the ×) discards nothing that matters since the last
+            successful add already cleared the fields. */}
+        {addingTransaction && (
+          <form onSubmit={onSubmit} className="space-y-2 rounded-card bg-surface p-2 shadow-card">
+            <div className="flex items-center justify-between px-1 pt-1">
+              <h2 className="text-footnote font-semibold tracking-wide text-label-secondary uppercase">
+                Add transaction
+              </h2>
+              <button
+                type="button"
+                onClick={() => setAddingTransaction(false)}
+                aria-label="Close"
+                className="-mr-1.5 flex size-8 items-center justify-center rounded-full text-label-tertiary transition-colors duration-200 ease-out hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+              >
+                <CloseIcon />
+              </button>
+            </div>
             <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              aria-label="Date"
-              className={`${inputClasses} flex-1`}
+              ref={merchantInputRef}
+              value={merchant}
+              onChange={(e) => setMerchant(e.target.value)}
+              placeholder="Merchant"
+              aria-label="Merchant"
+              className={`${inputClasses} w-full`}
             />
-            <input
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.00"
-              aria-label="Amount"
-              inputMode="decimal"
-              className={`${inputClasses} w-24 text-right tabular-nums`}
+            <CategorySelect
+              categories={categories}
+              value={selectedCategory}
+              onChange={setCategoryId}
+              onCreate={onAddCategory}
             />
-            <button
-              type="submit"
-              className="flex min-h-11 shrink-0 items-center rounded-full bg-accent px-5 text-headline font-semibold text-on-accent transition-opacity duration-200 ease-out hover:opacity-90 active:opacity-75 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface focus-visible:outline-none"
-            >
-              Add
-            </button>
-          </div>
-        </form>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                aria-label="Date"
+                className={`${inputClasses} flex-1`}
+              />
+              <input
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+                aria-label="Amount"
+                inputMode="decimal"
+                className={`${inputClasses} w-24 text-right tabular-nums`}
+              />
+              <button
+                type="submit"
+                className="flex min-h-11 shrink-0 items-center rounded-full bg-accent px-5 text-headline font-semibold text-on-accent transition-opacity duration-200 ease-out hover:opacity-90 active:opacity-75 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface focus-visible:outline-none"
+              >
+                Add
+              </button>
+            </div>
+          </form>
+        )}
 
         {error && <ErrorNotice>{error}</ErrorNotice>}
 

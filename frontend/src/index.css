@@ -89,41 +89,17 @@
 
   --p-shadow-card: 0 1px 3px rgb(0 0 0 / 0.08);
 
-  /* Lets native controls, scrollbars and form widgets follow the theme too. */
-  color-scheme: light dark;
+  /* Lets native controls and the scrollbar match whichever theme is active —
+     data-theme drives which value wins, not the OS. */
+  color-scheme: light;
 }
 
-/* Dark (night). This media query IS the theme detection — it follows the OS
-   appearance on desktop and phone alike and re-evaluates live, with no JS and
-   nothing persisted. Dark is not the light palette dimmed: Apple brightens and
-   desaturates its accents for dark backgrounds, so these are different values. */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    --p-bg: #000000;
-    --p-bg-grouped: #000000;
-    --p-surface: #1c1c1e;
-    --p-surface-raised: #2c2c2e;
-
-    --p-label: #ffffff;
-    --p-label-secondary: rgb(235 235 245 / 0.6);
-    --p-label-tertiary: rgb(235 235 245 / 0.3);
-    --p-separator: rgb(84 84 88 / 0.65);
-
-    --p-accent: #ff9f0a;
-    --p-accent-text: #ff9f0a;
-    --p-on-accent: #000000;
-    --p-danger: #ff453a;
-    --p-danger-text: #ff453a;
-    --p-success: #30d158;
-    --p-link: #0a84ff;
-
-    --p-shadow-card: none;
-  }
-}
-
-/* Explicit overrides. Nothing sets `data-theme` today — the app follows the
-   system and offers no toggle — but these are the third state in the guide's
-   contract, so adding a toggle later is one line of JS and no CSS. */
+/* Dark (night), applied only by an explicit choice — see src/theme.ts and the
+   inline script in index.html. There is deliberately no `prefers-color-scheme`
+   media query here: the app does not follow the OS appearance, it defaults to
+   light and stays there until the user picks Dark from the account menu. Dark
+   is not the light palette dimmed: Apple brightens and desaturates its accents
+   for dark backgrounds, so these are different values, not `opacity`. */
 :root[data-theme='dark'] {
   --p-bg: #000000;
   --p-bg-grouped: #000000;
@@ -145,10 +121,6 @@
 
   --p-shadow-card: none;
   color-scheme: dark;
-}
-
-:root[data-theme='light'] {
-  color-scheme: light;
 }
 
 @layer base {

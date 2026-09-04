@@ -4,13 +4,29 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <!-- Tells the browser the page renders in both appearances, so native form
-         controls and the scrollbar follow the OS theme rather than assuming light. -->
+    <!-- Lets native form controls and the scrollbar render in either
+         appearance before CSS loads; index.css's `color-scheme` property
+         (theme-aware, driven by data-theme) is what actually decides which
+         once it does. -->
     <meta name="color-scheme" content="light dark" />
-    <!-- A manifest theme_color cannot be media-responsive; these can, so the
-         mobile browser chrome tracks the theme live. Values match --p-bg. -->
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FFFFFF" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000" />
+    <!-- id, not a media pair: the app picks an explicit theme rather than
+         following the OS, so this tracks data-theme (kept in sync by
+         src/theme.ts) instead of prefers-color-scheme. Value here is just the
+         pre-JS default so the very first paint isn't wrong; the inline script
+         below corrects it synchronously before that paint happens. -->
+    <meta name="theme-color" id="theme-color-meta" content="#FFFFFF" />
+    <!-- Applies the theme before first paint, so there is no flash of the
+         wrong theme. Mirrors src/theme.ts's contract exactly: the app always
+         renders an explicit theme, defaulting to light when nothing (or
+         something invalid) is stored — there is no OS-following mode. -->
+    <script>
+      (function () {
+        var t = localStorage.getItem('piggy-theme') === 'dark' ? 'dark' : 'light'
+        document.documentElement.dataset.theme = t
+        var meta = document.getElementById('theme-color-meta')
+        if (meta) meta.setAttribute('content', t === 'dark' ? '#000000' : '#FFFFFF')
+      })()
+    </script>
     <title>Piggy Tracking</title>
   </head>
   <body>

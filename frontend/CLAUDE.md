@@ -112,26 +112,41 @@ accent fill uses `text-on-accent` (dark, ~10:1); accent-coloured *text* on a
 page uses `text-accent-text`. Reaching for `text-accent` on a light background
 is the bug this pair prevents.
 
-**Theme switching has three states**, matching how Apple does it: system,
-explicitly light, explicitly dark. Define the light values on `:root`, override
-them under `@media (prefers-color-scheme: dark)` guarded so an explicit light
-choice wins, and override them again under an explicit `[data-theme="dark"]` on
-`<html>`. Because the tokens carry the theme, components mostly need **no**
-`dark:` variants at all — reach for one only when the *shape* differs, not the
-colour.
+**Theme switching is explicit, not OS-following.** There is no
+`prefers-color-scheme` media query anywhere in this scheme — the app always
+renders a theme it chose, defaulting to **light**, and only the user's own
+pick in `AccountMenu` (see § Account menu below) ever changes it. This was a
+deliberate reversal of an earlier design that tried to follow the OS by
+default: that version had a bug where an explicit choice didn't survive a
+reload, and the fix was to stop trying to track two sources of truth (OS state
++ stored override) and make the app's own default the only fallback. Define
+the light values on plain `:root` — they **are** the default now, not a
+"bright theme" alternative to some OS-driven baseline — and override them
+under `:root[data-theme='dark']`. Because the tokens carry the theme,
+components mostly need **no** `dark:` variants at all — reach for one only
+when the *shape* differs, not the colour.
 
-The app **has no theme toggle and is not meant to grow one lightly**: the
-`@media (prefers-color-scheme: dark)` block is the whole mechanism, so the UI
-follows the OS appearance on desktop and phone with no JS and nothing persisted.
-The `[data-theme]` blocks are written but inert — they are the hook a toggle
-would use, and they are why the media query is guarded with
-`:not([data-theme='light'])`.
+**The toggle lives in `AccountMenu`**, and it is the only thing that ever sets
+`data-theme`. `src/theme.ts` owns the contract: `ThemePreference` is just
+`"light" | "dark"`, `getStoredThemePreference()` reads `localStorage`'s
+`piggy-theme` key and falls back to `"light"` for anything missing or invalid,
+and `applyThemePreference()` always sets both `data-theme` and the storage key
+— there is no "clear the override" branch, because there is no OS state to
+fall back to. An inline `<script>` in `index.html`, placed before anything
+else in `<head>`, mirrors that same default-to-light logic and applies it
+synchronously before first paint — without it, a reload would flash light for
+one frame before React mounts and re-applies a stored dark choice. Keep that
+script and `theme.ts`'s contract in agreement if it ever changes.
 
 Two supporting pieces that are easy to forget when changing colours:
-`index.html` carries `<meta name="color-scheme" content="light dark">` plus a
-**pair** of `theme-color` metas with `prefers-color-scheme` media attributes
-(a manifest `theme_color` cannot be responsive, so the one in `vite.config.ts`
-just holds the light base `#FFFFFF`).
+`index.html` carries a static `<meta name="color-scheme" content="light dark">`
+(so native controls don't assume light before CSS loads; the CSS `color-scheme`
+property, which *is* theme-aware, wins once it does) and a single
+`id="theme-color-meta"` `theme-color` tag that `theme.ts` updates alongside
+`data-theme` — not a `prefers-color-scheme` media pair, since the mobile
+browser chrome now follows the same explicit choice as the page, not the OS.
+The manifest's own `theme_color` in `vite.config.ts` still just holds the
+light base `#FFFFFF`, since that's the app's default.
 
 One Tailwind v4 detail the whole scheme rests on: the mapping block is
 `@theme inline`, not plain `@theme`. `inline` compiles `bg-surface` to
@@ -419,11 +434,76 @@ The bar is `aria-hidden`: it is a redraw of the two numbers directly above it,
 so announcing it again is noise. It clamps at 100% when over budget — the "$620
 over" line already says how far.
 
+## Account menu
+
+The header's top-right corner is a single 44×44 initials avatar
+(`AccountMenu`), replacing what used to be a bare name-text-plus-"Sign out"
+button. It opens a popover that does three jobs: identity, appearance, and
+sign-out.
+
+**"Account setting" is a read-only header inside the popover, not a screen.**
+There is no router in this app — same reason the transaction edit panel is an
+in-place disclosure rather than a detail route — so the menu's top rows just
+show the signed-in name and email from data already in `Session`. Nothing
+navigates.
+
+**Appearance is a two-item `role="menuitemradio"` group** (Light / Dark, no
+"System" — see § Two themes above for why), backed by `src/theme.ts`. Picking
+an option calls `applyThemePreference` and does **not** close the menu, matching
+how iOS keeps an inline radio group open
+after a tap; only Sign out or a dismissal closes it.
+
+**Dismissal is outside-click plus Escape**, both wired as `document` listeners
+that exist only while `open` is true — the same "no listener while closed"
+shape used everywhere else conditional effects appear in this file. Escape
+returns focus to the trigger button rather than dropping it. The panel itself
+renders only while open, so — like `EditPanel` and `BudgetEditor` — there is no
+reset logic to write; closing it discards nothing because there's no draft
+state to discard. That open/dismiss shape is `usePopoverMenu`, a small hook
+factored out once `AddTransactionMenu` (below) needed the identical behaviour
+— write a third popover against the hook, not by copying a component's
+`useEffect`.
+
+## App title and adding a transaction
+
+The header's top row is `Piggy Tracking` on the left at `text-headline`
+(17pt semibold — Apple's own compact nav-bar title size) paired with
+`AccountMenu` on the right. It sits a full weight class below the Large Title
+used for the month name just underneath, on purpose: the brand mark is a
+quiet anchor, not competition for "the user's numbers are the loudest thing
+on screen."
+
+**`AddTransactionMenu` sits immediately beside the month total**, not inside
+the transaction list further down — it's the one action the dashboard exists
+to support, so it doesn't wait behind a scroll. It's a `usePopoverMenu`
+popover, same shape as `AccountMenu`, listing all three ways a transaction can
+get into the app even though only one is built:
+
+- **Add manually** — opens the entry form (see below).
+- **Scan a receipt** / **Upload a receipt** — real `role="menuitem"` rows with
+  a "Soon" tag, not hidden and not real `<button disabled>` elements. A
+  disabled control is skipped by VoiceOver's rotor as if it weren't there,
+  which would silently drop the "Soon" label along with it; `aria-disabled`
+  keeps the row announced without making it actionable. Naming the other two
+  methods up front, rather than shipping a plain "+" that would have to grow
+  a menu later, is deliberate — it's the honest shape of the feature.
+
+**The entry form is a disclosure, not a modal** — same reasoning as
+`EditPanel` and `BudgetEditor`: one more overlay primitive isn't worth it for
+a form that already has a place to live inline. It renders only while
+`addingTransaction` is true (set by choosing "Add manually"), carries its own
+header with a close (×) button, and autofocuses the merchant field on open via
+a ref + `requestAnimationFrame` — the frame wait matters, since focusing
+before the disclosure's content has actually mounted is a no-op. Submitting
+does **not** close it: the existing "don't reset the category" behaviour (see
+§ Categories above) means consecutive entries stay fast, and closing on every
+save would undo that.
+
 ## App.tsx is a smoke screen, not the product
 
 `src/App.tsx` exists to prove the frontend → backend → database path works end to
 end — sign in, list a month of your own transactions, add one, edit or delete
-one, set a category budget, sign out. The `Dashboard`
+one, set a category budget, switch appearance, sign out. The `Dashboard`
 half is placeholder UI and is meant to be replaced; the session machinery around
 it is not. Its styling, however, **is** the design language above —
 `App.tsx` and `SignIn.tsx` are the reference for how the tokens, the grouped
