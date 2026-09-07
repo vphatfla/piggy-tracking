@@ -13,7 +13,11 @@ Area-specific guides load automatically when you touch those directories:
 frontend/            React 19 + Vite 8 SPA. Runs NATIVELY — never containerised.
 backend/             Express 5 + Prisma 7 API. Containerised.
   prisma/            schema.prisma, migrations/, seed.ts  ← the database lives here
-docker-compose.yml   Two services only: db + backend.
+docker-compose.yml   Two services only: db + backend. Local dev only — see
+                     docker-compose.prod.yml for the production overlay.
+terraform/           Production infra — S3 + EC2/EBS/ECR. See § Production below.
+deploy/              remote-deploy.sh — runs on the EC2 box, not locally, not in CI.
+.github/workflows/   CI (every PR) + CD (build/push/deploy on merge to main).
 docs/                Design records: the reasoning behind a decision, kept
                      whether or not it is built yet.
 .env                 Gitignored. Copy from .env.example.
@@ -62,6 +66,39 @@ run on the host. The backend **container** builds its own URL from the
 Changing the database name/user means updating both places.
 
 Never commit `.env`. When you add a key, add it to `.env.example` too.
+
+## Production
+
+**Live** at `https://vphatfla.me/app/piggy-tracking/` (frontend, installable
+PWA) and `https://vphatfla.me/api/*` (backend). Not its own domain or
+CloudFront distribution — it rides **oppy-marser's** existing, live
+distribution (`~/workplace/oppy-marser`), routed by path. Both apps stay up
+independently; nothing here can take oppy-marser's own site down, and vice
+versa. Full reasoning for that choice, and the two Terraform states'
+cross-repo coupling (each reads the other's outputs via `terraform_remote_state`,
+neither writes to the other's state), is `terraform/README.md`.
+
+Infra is Terraform (`terraform/`, applied and live): an S3 bucket for the
+frontend build, an EC2 instance (`t4g.nano` — small on purpose, see
+`variables.tf`'s comment on the RAM/cost trade-off and the swap file that
+covers it) running the backend + Postgres via `docker-compose.yml` +
+`docker-compose.prod.yml`, on a dedicated EBS volume. **No SSH, no key
+pair** — access is `aws ssm start-session --target <instance-id>` only.
+Current run-rate is ~$9.91/month; see `terraform/README.md` if that ever
+needs revisiting.
+
+**Deploying**: the backend image builds and pushes to ECR, then
+`deploy/remote-deploy.sh` runs *on the box* (triggered via `aws ssm
+send-command`, not SSH) — it fetches secrets from SSM Parameter Store
+(`/piggy-tracking/prod/*`, never through GitHub Actions or the SSM command
+payload itself) and does `docker compose pull && up -d --no-build`. The
+frontend syncs to the S3 bucket with per-path cache headers (hashed assets
+immutable, `sw.js`/manifest/`registerSW.js` no-cache — or a PWA update never
+reaches installed clients). GitHub Actions workflows for all of this exist
+in `.github/workflows/`, but the **first deploy was done manually**,
+running the identical commands the workflows would — the repo secrets
+(`AWS_ROLE_ARN` etc., listed in `terraform/README.md`) aren't wired up in
+GitHub yet.
 
 ## The product shape
 
@@ -174,6 +211,7 @@ change** that makes them stale, not afterwards:
 | auth: token lifetimes, cookie flags, what a route trusts | this file's Auth section + `backend/CLAUDE.md` |
 | a settled product decision, or a milestone shipped | this file's Product shape / Where this is going |
 | anything about budgets — the model, inheritance, the routes | `docs/budgets.md` |
+| infra: instance size, volumes, IAM, the oppy-marser coupling, deploy mechanism | this file's Production section + `terraform/README.md` |
 
 Record the *why* and the traps — version quirks, non-obvious constraints,
 decisions that look wrong but aren't. Do not restate what the code already says;

@@ -222,15 +222,32 @@ or a glyph, not just red). Everything reachable and operable by keyboard.
 ## PWA
 
 `vite-plugin-pwa` is configured in `vite.config.ts` with `registerType: 'autoUpdate'`
-and `devOptions.enabled` (so the service worker is live in dev too). It is
-scaffolding for later work — the install prompt is not built out yet.
+and `devOptions.enabled` (so the service worker is live in dev too).
+**Confirmed installable in production** — valid manifest (correct MIME type,
+`no-cache`), service worker registered with the right scope, both required
+icon sizes present, served over HTTPS. Installs from Safari's Share sheet
+(iOS) or Chrome's Install-app prompt (Android); see root `CLAUDE.md`'s
+Production section for the URL.
 
-- `public/pwa-192x192.png` and `pwa-512x512.png` are **flat-colour placeholders**.
-  Replace them with real icons before shipping; the manifest already references them.
+- **`base` is conditional on `command`, not a fixed value** — production
+  (`vite build`) serves from `/app/piggy-tracking/` (see root `CLAUDE.md`'s
+  Production section for why: it rides oppy-marser's CloudFront distribution,
+  path-routed, not its own domain), dev stays at `/`. The manifest's
+  `start_url` and `scope` are both derived from that same `base` constant
+  rather than hardcoded, so they can't drift from it independently.
+- `public/pwa-192x192.png` and `pwa-512x512.png` are **still flat-colour
+  placeholders** in production right now — functionally valid (real PNGs,
+  correct sizes, satisfy every installability check), just not real branding.
+  Replace them whenever; the manifest already references them, no other
+  change needed.
 - Dev builds emit `dev-dist/`. It is ignored by the **root** `.gitignore`, not
   this directory's — don't be surprised when it appears.
 - A stale service worker is the usual reason a change "doesn't show up" in dev.
-  Hard-reload or unregister it before debugging further.
+  Hard-reload or unregister it before debugging further. In production, the
+  `no-cache` header on `sw.js`/the manifest/`registerSW.js` (set at sync time
+  by `frontend-deploy.yml`) is what keeps this from becoming a real problem
+  for installed clients — don't relax that to a long TTL "for performance,"
+  it's the opposite of the win it looks like.
 
 ## Backend calls
 

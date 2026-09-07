@@ -62,9 +62,17 @@ resource "aws_ecr_lifecycle_policy" "backend" {
 
 data "aws_iam_policy_document" "backend_deploy" {
   statement {
-    sid       = "ReadOwnSecrets"
-    actions   = ["ssm:GetParametersByPath", "ssm:GetParameter", "ssm:GetParameters"]
-    resources = ["arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/${var.environment}/*"]
+    sid     = "ReadOwnSecrets"
+    actions = ["ssm:GetParametersByPath", "ssm:GetParameter", "ssm:GetParameters"]
+    # Two patterns, not one: GetParametersByPath checks permission against
+    # the bare path itself (".../prod", no trailing slash) - a resource ARN
+    # of ".../prod/*" alone doesn't match that and the call is denied.
+    # Confirmed the hard way against the real instance role. ".../prod*"
+    # covers both the bare path and everything nested under it.
+    resources = [
+      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/${var.environment}",
+      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/${var.environment}/*",
+    ]
   }
 
   # SSM Parameter Store SecureString values are encrypted under the account's

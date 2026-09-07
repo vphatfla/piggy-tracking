@@ -1,15 +1,22 @@
 # Infrastructure
 
+**Status: applied and live.** `https://vphatfla.me/app/piggy-tracking/` and
+`https://vphatfla.me/api/*` are both serving real traffic. Instance id
+`i-00be81717170a1650`, bucket `piggy-tracking-prod-741448918679`, ECR repo
+`piggy-tracking-backend` — `terraform output` is the source of truth if any
+of these are ever recreated.
+
 Provisions piggy-tracking's production hosting: an S3 bucket for the built
 frontend, and an EC2 instance (+ dedicated EBS volume for Postgres) running
 the backend via the existing `docker-compose.yml` + `docker-compose.prod.yml`.
 
-**Not provisioned here**: the app is never actually deployed onto the box by
-this Terraform — `user_data.sh` stops at "Docker is installed and the data
-volume is mounted." Building the backend image, pushing it, and telling the
-box to pull and run it is `.github/workflows/backend-deploy.yml` (and
-`deploy/remote-deploy.sh`, which is what that workflow tells the box to
-run) — see the repo root's `.github/workflows/` and `deploy/`.
+`user_data.sh` itself stops at "Docker is installed and the data volume is
+mounted" — it never deploys the app. That's `.github/workflows/backend-deploy.yml`
++ `.github/workflows/frontend-deploy.yml` (and `deploy/remote-deploy.sh`,
+which is what the backend workflow tells the box to run) — see the repo
+root's `.github/workflows/` and `deploy/`. **The first deploy was done by
+hand**, running the identical commands the workflows run — the GitHub repo
+secrets those workflows need aren't wired up yet (see step 3 below).
 
 `cicd.tf` (alongside this file) is what those workflows authenticate as and
 run against: an ECR repository for the backend image, the extra IAM
@@ -65,9 +72,36 @@ reads outputs that only exist once this stack has real state. Apply order:
    the two new origins/cache behaviors to its distribution, now that this
    stack's outputs exist to read.
 
-None of this has been applied yet — see the plan this was built from for
-what's deliberately still out of scope (deploy automation, `terraform apply`
-itself).
+Applied in this order (matters — see the cross-repo coupling above):
+state bucket bootstrap → `main.tf` + `cicd.tf` → oppy-marser's edit → the
+CloudFront path-pattern fix below → the manual first deploy. Real bugs
+were found and fixed live along the way, not just in review — worth reading
+if this ever needs touching again:
+
+- **EC2's `GroupDescription` is ASCII-only** — the em dash this repo's
+  comments use everywhere else got rejected outright by the API.
+- **AL2023's AMI snapshot requires ≥30GB** root volume — 8GB was rejected.
+- **`docker-compose-plugin` isn't a real AL2023 `dnf` package** (that's a
+  Docker CE repo package) — `user_data.sh` died under `set -e` before ever
+  reaching the EBS mount step. Now installs the Compose CLI plugin as a
+  direct binary download.
+- **`ssm:GetParametersByPath`'s resource ARN needs the bare path, not just
+  the wildcard** — `.../prod/*` alone doesn't cover a call for `.../prod`
+  itself; `cicd.tf` now grants both.
+- **CloudFront's `/app/piggy-tracking/*` wildcard doesn't match the bare
+  path with no trailing slash** — that's a real URL people type/bookmark,
+  and it was silently falling through to oppy-marser's own default
+  behavior/origin. Fixed with a second, exact-match `ordered_cache_behavior`
+  for `/app/piggy-tracking` in oppy-marser's `main.tf`, identical settings
+  otherwise.
+
+Also found, **not fixed here, not this repo's to fix**: oppy-marser's own
+pre-existing `default_cache_behavior` has a mislabeled policy ID — the hex
+value hardcoded as "CachingOptimized" actually resolves to
+`Managed-CachingDisabled` (confirmed by comparing it against a real `data
+"aws_cloudfront_cache_policy"` lookup by name). Their live site has been
+serving with caching disabled, not optimized, the whole time. Worth fixing
+in oppy-marser separately, whenever.
 
 ## One-time manual setup (not automated — same spirit as the state-bucket bootstrap)
 
@@ -75,7 +109,8 @@ Two things need to exist *before* `terraform apply` on `cicd.tf` and before
 CI/CD can run at all. Neither is Terraform's job — secrets shouldn't be
 provisioned by the same pipeline that reads them, and the GitHub OIDC
 provider is an account-wide singleton oppy-marser's own CD already depends
-on existing.
+on existing. **Steps 1-2 are done**; step 3 (GitHub repo secrets) isn't —
+the first deploy was manual, see above.
 
 1. **Confirm the account's GitHub OIDC provider exists**:
    ```bash
