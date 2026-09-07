@@ -5,9 +5,35 @@
 set -euo pipefail
 
 # --- Docker + the Compose plugin -------------------------------------------
-dnf install -y docker docker-compose-plugin
+# AL2023's own AMI already ships docker (this install is a no-op / safety net
+# for a future AMI that doesn't) - confirmed on the actual instance. But its
+# dnf repos do NOT carry docker-compose-plugin at all (that's a Docker CE
+# apt/yum repo package, AL2023 isn't on that repo) - confirmed the hard way,
+# `dnf install` failed outright and aborted the rest of this script under
+# set -e. The compose plugin has to come from a direct binary download.
+dnf install -y docker
 systemctl enable --now docker
 usermod -aG docker ec2-user
+
+compose_dir="/usr/local/lib/docker/cli-plugins"
+mkdir -p "$compose_dir"
+curl -SL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-aarch64" \
+  -o "$compose_dir/docker-compose"
+chmod +x "$compose_dir/docker-compose"
+
+# --- Swap ---------------------------------------------------------------
+# t4g.nano's 512MB is genuinely tight for Postgres + Node + Docker together
+# (see variables.tf's instance_type comment) - this absorbs a memory spike
+# with the OOM killer instead of it firing on a personal app that otherwise
+# has near-zero concurrent load. Idempotent: skip if it already exists, so a
+# re-run of this script never re-creates or re-enables it.
+if [ ! -f /swapfile ]; then
+  fallocate -l 1G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
 
 # --- Format (once) and mount the EBS data volume ---------------------------
 # ${device} is templated in by Terraform's templatefile() — see main.tf.

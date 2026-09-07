@@ -149,8 +149,10 @@ data "aws_ec2_managed_prefix_list" "cloudfront" {
 }
 
 resource "aws_security_group" "backend" {
-  name        = "${var.project_name}-${var.environment}-backend-sg"
-  description = "Backend API — inbound only from CloudFront, no SSH"
+  name = "${var.project_name}-${var.environment}-backend-sg"
+  # EC2's GroupDescription field is ASCII-only (rejects the em dash the rest
+  # of this repo's comments use freely) - confirmed the hard way, apply failed.
+  description = "Backend API - inbound only from CloudFront, no SSH"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
@@ -225,7 +227,9 @@ resource "aws_instance" "backend" {
 
   root_block_device {
     volume_type = "gp3"
-    volume_size = 8
+    # AL2023's own AMI snapshot requires >=30GB - confirmed the hard way,
+    # apply rejected 8GB as smaller than the snapshot it's built from.
+    volume_size = 30
     encrypted   = true
   }
 

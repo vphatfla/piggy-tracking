@@ -35,13 +35,23 @@ variable "instance_type" {
   # Graviton (ARM64): the backend Dockerfile (node:22-alpine) has no native
   # deps that would need x86, and this box is idle most of the time — t4g
   # is meaningfully cheaper than the t3 equivalent for that shape.
-  default = "t4g.micro"
+  #
+  # .nano over .micro is a deliberate cost/risk trade-off, not the safe
+  # default: 512MB is genuinely tight for Postgres + Node + Docker together,
+  # with real OOM risk under any memory spike. Acceptable here because this
+  # is a single-user personal app with near-zero concurrent load, and
+  # user_data.sh adds a swap file specifically to absorb spikes instead of
+  # the OOM killer firing. Bump to t4g.micro first if anything gets OOM-killed.
+  default = "t4g.nano"
 }
 
 variable "data_volume_size_gb" {
   description = "Size (GiB) of the EBS volume Postgres's data lives on"
   type        = number
-  default     = 20
+  # gp3 resizes online with zero downtime later if this app's data ever
+  # actually approaches it - no reason to pay for headroom upfront for a
+  # personal budget tracker's transaction rows.
+  default = 8
 }
 
 # --- oppy-marser's remote state -------------------------------------------
