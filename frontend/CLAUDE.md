@@ -347,11 +347,14 @@ below.
 
 ## Editing a row: the pinned order
 
-Tapping a transaction expands it in place — there is no per-row edit icon, and
-no detail route, because the app has no router. The row is a real `<button>`
-with `aria-expanded`/`aria-controls`, so keyboard activation comes for free;
-`EditPanel` renders only while open, which is what makes Cancel and closing
-discard the drafts with no reset logic.
+Tapping a transaction expands it in place — there is no per-row edit icon
+beyond the chevron affordance, and no detail route, because the app has no
+router. The row is a real `<button>` with `aria-expanded`/`aria-controls`, so
+keyboard activation comes for free; `EditPanel` renders only while open,
+which is what makes Cancel and closing discard the drafts with no reset
+logic. This row (`components/TransactionRow.tsx`) is shared verbatim by List
+view and a budget drill-down (see Budgets below) — the two must never drift
+apart, so a change to one is a change to both by construction.
 
 **The render order is state, not derived.** `order: number[]` holds the ids and
 is recomputed *only* on a fetch and on a sort press — never during render:
@@ -385,7 +388,30 @@ saved. On error the panel stays open with the edits intact.
 Delete is a two-step inline confirm rather than `window.confirm` — a native
 modal blocks the page, and it is not the iOS idiom.
 
-## Budgets
+## Budgets vs List — the view toggle
+
+The section under the month total is one `<section>` with two views, switched
+by `ViewToggle` (`components/ViewToggle.tsx`) — **Budgets is the default**;
+List is the old always-visible transaction list, now opt-in. The toggle is
+not persisted like theme: `useDashboard`'s `changeMonth` resets it to Budgets
+on every month change, done from the stepper's own handler rather than a
+`useEffect` keyed on `month` — the latter is a real `setState`-in-effect
+lint trip, not just a style preference, since the reset is a response to the
+event that changed the month, not a synchronization with an external system.
+
+**Tapping a budget row drills into that category's transactions inline** —
+same disclosure idiom as everything else here, no modal, no route. Only rows
+with `spent > 0` are interactive (a limit with nothing spent this month has
+nothing to drill into, so it stays a plain, non-tappable line); "Uncategorised"
+drills in the same way, keyed by the sentinel `'uncategorised'` since it has
+no real category id. Only one row's drill-down is open at a time
+(`expandedCategoryId`), and three things collapse it: switching to List view,
+opening a different row's drill-down, and opening the whole-section budget
+editor (`onToggleBudgetEditor`) — the last because rows become input fields
+while editing, so a drill-down open at the same time makes no sense. A
+drill-down's own transaction list is always date-desc, no sort chips — it's
+already a small, filtered subset, and List view is one tap away for anyone
+who wants the full sortable list.
 
 The section under the month total does two jobs at once: it is the per-category
 breakdown of the month, and it is where limits are set.
@@ -488,28 +514,77 @@ get into the app even though only one is built:
   methods up front, rather than shipping a plain "+" that would have to grow
   a menu later, is deliberate — it's the honest shape of the feature.
 
-**The entry form is a disclosure, not a modal** — same reasoning as
-`EditPanel` and `BudgetEditor`: one more overlay primitive isn't worth it for
-a form that already has a place to live inline. It renders only while
-`addingTransaction` is true (set by choosing "Add manually"), carries its own
-header with a close (×) button, and autofocuses the merchant field on open via
-a ref + `requestAnimationFrame` — the frame wait matters, since focusing
-before the disclosure's content has actually mounted is a no-op. Submitting
-does **not** close it: the existing "don't reset the category" behaviour (see
-§ Categories above) means consecutive entries stay fast, and closing on every
-save would undo that.
+**The entry form (`AddTransactionSheet`) rises in a bottom sheet
+(`components/Sheet.tsx`), not an inline disclosure.** This is the one
+exception to "disclosure, not a modal": `EditPanel` and `BudgetEditor` edit
+something already on screen, so a disclosure opening right under the tapped
+row is the correct place for it to appear. Adding a transaction isn't tied to
+any row — it's a global action launched from the header — so on a month with
+enough budget rows to push the trigger off screen, an inline disclosure
+appended after the whole section would open somewhere the user isn't looking.
+`Sheet` is the app's one true overlay primitive, kept generic (scrim + a
+slide-up panel, no form-specific logic) so a later Scan/Upload flow can reuse
+it without copying the chrome. It renders only while `open` is true (set by
+choosing "Add manually"), and returns `null` while closed rather than
+hiding-in-place — that makes every open a fresh mount, which is what makes
+the slide-in transition replay each time rather than only once. No focus
+trap: same "closes on outside click/Escape, doesn't fight the browser's own
+tab order" shape the popover menus already use. The form inside is otherwise
+unchanged: same fields, same close (×) button, same
+`merchantInputRef` + `requestAnimationFrame` autofocus, and submitting still
+does **not** close it — the existing "don't reset the category" behaviour
+(see § Categories above) means consecutive entries stay fast, and closing on
+every save would undo that.
+
+**`AddTransactionMenu`'s trigger is solid (`bg-accent`), not tinted.** Every
+other icon-only action on the dashboard (`SlidersIcon` for the budget editor,
+inactive `SortChip`s) uses the `bg-accent/12` tint reserved for secondary
+actions; the "+" is the one primary action the screen exists to support, so
+it keeps the filled-pill treatment `EditPanel`'s Save button and the form's
+own Add button already use, rather than sharing a visual weight with
+secondary controls.
+
+## File structure
+
+`src/App.tsx` is just the session state machine now (`restoring` →
+`anonymous` | `authenticated`) — everything Dashboard-shaped lives elsewhere:
+
+```
+src/
+  App.tsx, SignIn.tsx          # session machine, sign-in screen
+  api.ts, format.ts, month.ts, theme.ts, google.ts, sort.ts, budgetCalc.ts, ui.ts
+  hooks/
+    usePopoverMenu.ts          # open + outside-click/Escape dismissal, shared
+    useDashboard.ts            # all of Dashboard's state, effects, and derived
+                                # data — the requestId/sortRef guards live here
+  components/
+    Dashboard.tsx               # rendering only; calls useDashboard()
+    AccountMenu.tsx, AddTransactionMenu.tsx, AddTransactionSheet.tsx,
+    BudgetEditor.tsx, BudgetRow.tsx, CategorySelect.tsx, EditPanel.tsx,
+    ErrorNotice.tsx, Sheet.tsx, SortChip.tsx, StepButton.tsx,
+    TransactionRow.tsx, ViewToggle.tsx, icons.tsx
+```
+
+This split happened after the code had grown to one 1,390-line `App.tsx`
+holding everything — the doc-comment history in git explains individual
+pieces if a comment ever seems to be answering a question the surrounding
+code doesn't ask. Keep new Dashboard-area UI in `components/`, cross-cutting
+non-JSX logic in a root-level module (as `sort.ts`/`budgetCalc.ts` are), and
+new Dashboard state/effects in `useDashboard.ts` rather than back in a
+component body.
 
 ## App.tsx is a smoke screen, not the product
 
-`src/App.tsx` exists to prove the frontend → backend → database path works end to
-end — sign in, list a month of your own transactions, add one, edit or delete
-one, set a category budget, switch appearance, sign out. The `Dashboard`
-half is placeholder UI and is meant to be replaced; the session machinery around
-it is not. Its styling, however, **is** the design language above —
-`App.tsx` and `SignIn.tsx` are the reference for how the tokens, the grouped
-list and the 44px controls are meant to be used, so extend that rather than
-starting a new visual idiom. The seeded demo user cannot be logged into, because
-its `googleId` is a made-up string rather than a real Google `sub`.
+`src/App.tsx` plus `components/Dashboard.tsx` exist to prove the frontend →
+backend → database path works end to end — sign in, list a month of your own
+transactions, add one, edit or delete one, set a category budget, switch
+appearance, sign out. `Dashboard.tsx` is placeholder UI and is meant to be
+replaced; the session machinery in `App.tsx` around it is not. Its styling,
+however, **is** the design language above — `Dashboard.tsx` and `SignIn.tsx`
+are the reference for how the tokens, the grouped list and the 44px controls
+are meant to be used, so extend that rather than starting a new visual idiom.
+The seeded demo user cannot be logged into, because its `googleId` is a
+made-up string rather than a real Google `sub`.
 
 ## Toolchain notes
 
@@ -517,8 +592,8 @@ its `googleId` is a made-up string rather than a real Google `sub`.
   is no formatter, so match surrounding style by hand — single quotes, no
   semicolons, 2-space indent.
 - `npm run lint` exits 0 but has **one known standing warning**:
-  `react(set-state-in-effect)` on `Dashboard`'s mount-time fetch in `App.tsx`. It is
-  expected — you did not introduce it. Any *other* diagnostic is yours to fix.
+  `react(set-state-in-effect)` on the mount-time fetch in `hooks/useDashboard.ts`.
+  It is expected — you did not introduce it. Any *other* diagnostic is yours to fix.
 - `tsconfig.json` is a solution file with project references to
   `tsconfig.app.json` (browser code) and `tsconfig.node.json` (Vite config).
   Compiler options go in the referenced file, not the root one. `npm run build`

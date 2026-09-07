@@ -15,7 +15,13 @@ export const formatMoney = (value: string | number) => money.format(Number(value
 /** Sums decimal strings for display. Cents can drift through float addition, so
  *  the arithmetic is done in integer cents and only then divided. */
 export const sumMoney = (values: string[]) =>
-  values.reduce((cents, v) => cents + Math.round(Number(v) * 100), 0) / 100
+  values.reduce((total, v) => total + Math.round(Number(v) * 100), 0) / 100
+
+/** A money string as integer cents — the unit sorting, spend totals, and the
+ *  "did this actually change" comparisons all do their arithmetic in, so a
+ *  retype like "9988" over "9988.00" isn't treated as an edit and cents never
+ *  drift through float addition. */
+export const cents = (value: string) => Math.round(Number(value) * 100)
 
 const dayMonth = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' })
 

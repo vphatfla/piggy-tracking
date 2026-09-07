@@ -56,6 +56,10 @@
   --radius-control: 10px;
   --radius-card: 14px;
 
+  /* Same dimming value in both themes, so it lives here rather than in the
+     --p-* layer below: a scrim isn't a surface colour that needs to invert. */
+  --color-scrim: rgb(0 0 0 / 0.4);
+
   /* Themed, because a drop shadow is invisible on black — in dark mode a
      raised surface is a lighter grey and nothing else. */
   --shadow-card: var(--p-shadow-card);
