@@ -1,0 +1,84 @@
+name: Frontend Build and Deploy
+
+# Same shape as oppy-marser's own frontend-deploy.yml (push to main,
+# path-filtered, workflow_dispatch, OIDC) — see
+# ~/workplace/oppy-marser/.github/workflows/frontend-deploy.yml. The one
+# real addition: per-path Cache-Control at sync time, which their
+# service-worker-less static site doesn't need — see the sync step below.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['frontend/**']
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and Deploy Frontend
+    runs-on: ubuntu-latest
+    environment: production
+
+    defaults:
+      run:
+        working-directory: ./frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        env:
+          # Empty, not an absolute URL: api.ts's `${VITE_API_URL}${path}`
+          # then resolves every request relative to whatever origin served
+          # the page — vphatfla.me/api/... automatically, same-origin, no
+          # domain hardcoded into the build. See frontend/.env.example.
+          VITE_API_URL: ''
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+        run: npm run build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Deploy to S3
+        env:
+          S3_BUCKET: ${{ secrets.AWS_S3_FRONTEND_BUCKET }}
+          # oppy-marser's new S3 origin has no origin_path, so CloudFront
+          # forwards the full viewer path (including this prefix) straight
+          # to the bucket — objects have to live at this same key prefix,
+          # not bucket root, or every request 404s at the origin.
+          DEST_PREFIX: app/piggy-tracking
+        run: |
+          # Hashed assets (assets/*.js, assets/*.css) are safe to cache
+          # immutably forever — a content change always gets a new filename.
+          # sw.js, the manifest, and registerSW.js are NOT hashed and must
+          # stay no-cache, or a PWA update never reaches installed clients —
+          # excluded from the long-TTL sync and pushed separately below.
+          aws s3 sync ./dist "s3://${S3_BUCKET}/${DEST_PREFIX}" \
+            --delete \
+            --cache-control "public,max-age=31536000,immutable" \
+            --exclude "sw.js" \
+            --exclude "manifest.webmanifest" \
+            --exclude "registerSW.js"
+
+          aws s3 cp ./dist/sw.js "s3://${S3_BUCKET}/${DEST_PREFIX}/sw.js" \
+            --cache-control "no-cache"
+          aws s3 cp ./dist/manifest.webmanifest "s3://${S3_BUCKET}/${DEST_PREFIX}/manifest.webmanifest" \
+            --cache-control "no-cache"
+          aws s3 cp ./dist/registerSW.js "s3://${S3_BUCKET}/${DEST_PREFIX}/registerSW.js" \
+            --cache-control "no-cache"

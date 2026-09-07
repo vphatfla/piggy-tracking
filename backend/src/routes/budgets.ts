@@ -37,6 +37,25 @@ async function ownedCategory(userId: number, categoryId: number) {
   return category
 }
 
+// GET /api/budgets/exists
+//
+// Has this user ever set a budget, at all — independent of which month is
+// being viewed. Used once at startup to decide whether to show the first-run
+// nudge; unlike GET /?month=, which only proves a budget exists at-or-before
+// whatever month is asked, this can't be fooled by stepping to a month before
+// the user's first budget.
+budgetsRouter.get('/exists', async (req, res, next) => {
+  try {
+    const budget = await prisma.budget.findFirst({
+      where: { userId: authedUserId(req) },
+      select: { id: true },
+    })
+    res.json({ exists: budget !== null })
+  } catch (err) {
+    next(err)
+  }
+})
+
 // GET /api/budgets?month=YYYY-MM
 //
 // The *effective* limit per category, which is the row with the greatest

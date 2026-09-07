@@ -1,9 +1,9 @@
 # Budgets — design record
 
-**Status: built.** The `Budget` model, `GET`/`PUT`/`DELETE /api/budgets`, and
-the budgets section of the dashboard all exist — see the `add_budget_table`
-migration, `backend/src/routes/budgets.ts`, and `BudgetRow`/`BudgetEditor` in
-`frontend/src/App.tsx`.
+**Status: built.** The `Budget` model, `GET`/`PUT`/`DELETE`/`GET .../exists
+/api/budgets`, and the budgets section of the dashboard all exist — see the
+`add_budget_table` migration, `backend/src/routes/budgets.ts`, and
+`BudgetRow`/`BudgetEditor` in `frontend/src/components/`.
 
 This file stays as the **design record**: the reasoning below is what the code
 is protecting, and it is not re-derivable from reading the code. The decisions
@@ -103,6 +103,36 @@ earlier row it inherits from, which may well be another number.
 All scoped by `authedUserId(req)`, and all with the **explicit ownership check
 on `categoryId`** that `receiptId` gets in `src/routes/transactions.ts`: the
 foreign key proves the category exists, not whose it is.
+
+## "Only this month" — a client-side pattern, not a schema change
+
+The editor offers two treatments for a changed limit that has a previous
+value to compare against: **"this month onward"** (today's default —
+inserting a row at month M only ever affects M and later, per decision 3
+above) and **"only this month"**, added later so a one-off bump (a holiday
+month's higher grocery budget, say) doesn't silently become the new baseline
+forever after.
+
+"Only this month" needed no new column and no new route. It's the client
+doing two `PUT`s instead of one: the new value at month M, **and** the
+pre-edit value at month M+1 — so M+1 keeps scoring what it scored before this
+edit, rather than inheriting the new number forward. The two cases that make
+this more than "just write two rows":
+
+- **If M+1 already has its own explicit row** (a future month's budget was
+  pre-set), leave it alone — it's already unaffected by M's change, and
+  overwriting it would erase a real decision. The client checks this with one
+  `GET /api/budgets?month=` for M+1 before writing.
+- **If there's no previous value at M** (a category's very first-ever
+  budget), "only this month" has nothing to revert M+1 *to* — there is no way
+  to write a row meaning "no budget," since `amount` is `NOT NULL`. The
+  editor doesn't offer the choice at all in this case; the edit can only mean
+  "onward," which is also the only sensible reading of a first budget.
+
+Re-tested by hand: raising a bumped month's limit "only this month" leaves
+the *next* month scoring the pre-edit number, and the month after that
+correctly inherits from wherever it always did — the same forward chain this
+whole table exists to protect, just re-anchored one month later.
 
 ## What changed in the building
 

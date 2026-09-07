@@ -451,10 +451,31 @@ Three rules, all of them protecting the inheritance chain:
   inherited value has nothing local to delete; the limit lives in an earlier
   month, and a blank field is not a request to erase history.
 
+**Saving a changed limit that has a previous value asks forward-vs-once**, in
+a `Sheet`-chrome action sheet styled like Calendar's own "This event / All
+future events" prompt: "This month onward" is today's default insert
+behavior; "Only {month}" writes a second row at next month carrying the
+pre-edit value, so a one-off bump doesn't silently become the new baseline.
+The choice is asked **once per Save press, for the whole batch** — not per
+category — since `BudgetEditor` already saves every changed row in one action;
+per-category confirmation would mean rebuilding it as row-by-row editing. The
+sheet is skipped entirely when every changed field is a category's first-ever
+budget (nothing to choose between — see `docs/budgets.md`'s "Only this
+month" section for what "once" can't do in that case, and why).
+
 Saving refetches budgets only — not `refresh()`, which would reshuffle the
 pinned row order and collapse an open editor for a write that cannot touch a
 transaction. The editor is keyed on `month`, so stepping months while it is open
 re-seeds the drafts instead of carrying the old month's numbers into a new one.
+
+**A first-run user sees a different empty state.** `hasAnyBudgets` (from
+`useDashboard`, backed by `GET /api/budgets/exists`) is independent of which
+month is in view — unlike `budgetRows.length === 0`, which is a normal state
+for *any* month with nothing set. Only when `!hasAnyBudgets` does the section's
+empty state swap its plain "No budgets set for {month}" line for a nudge plus
+a button straight into the editor. This is a soft nudge, not a gate: the
+dashboard renders as usual either way, and nothing blocks using the app
+without ever setting a budget.
 
 The bar is `aria-hidden`: it is a redraw of the two numbers directly above it,
 so announcing it again is noise. It clamps at 100% when over budget — the "$620

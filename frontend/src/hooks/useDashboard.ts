@@ -3,6 +3,7 @@ import {
   createCategory,
   createTransaction,
   getBudgets,
+  getBudgetsExist,
   getCategories,
   getReceipts,
   getTransactions,
@@ -45,6 +46,12 @@ export function useDashboard(session: Session) {
   const [categories, setCategories] = useState<Category[]>([])
   const [budgets, setBudgets] = useState<Budget[]>([])
   const [editingBudgets, setEditingBudgets] = useState(false)
+  // Whether this user has ever set a budget, at all — not whether the viewed
+  // month has one, which is a normal, unrelated empty state. Fetched once
+  // (like categories) rather than derived from `budgets`, which only ever
+  // holds one month's effective limits. Flipped locally on a successful save
+  // instead of re-fetched, since a save is proof enough.
+  const [hasAnyBudgets, setHasAnyBudgets] = useState(true)
   // Seeded from localStorage (via the inline index.html script, which already
   // applied it before first paint) so this state and the DOM start in
   // agreement — applyThemePreference is the only thing that touches either
@@ -121,6 +128,10 @@ export function useDashboard(session: Session) {
   // transaction anyway.
   const refreshBudgets = useCallback(async () => {
     setBudgets(await getBudgets(accessToken, month))
+    // The only caller of this is BudgetEditor's onSaved, so reaching here
+    // means a write just succeeded — cheaper than a second /exists round
+    // trip, and this only ever flips false→true, never the reverse.
+    setHasAnyBudgets(true)
   }, [accessToken, month])
 
   // Categories are fetched once per session, not inside refresh(): they do not
@@ -129,6 +140,16 @@ export function useDashboard(session: Session) {
   useEffect(() => {
     getCategories(accessToken)
       .then(setCategories)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+  }, [accessToken])
+
+  // Same shape as the categories fetch above: once per session, independent
+  // of `month`. Defaults to `true` (see the field's own comment) so this
+  // never flashes the first-run nudge for a returning user while the request
+  // is in flight.
+  useEffect(() => {
+    getBudgetsExist(accessToken)
+      .then((r) => setHasAnyBudgets(r.exists))
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
   }, [accessToken])
 
@@ -278,6 +299,7 @@ export function useDashboard(session: Session) {
     categories,
     onAddCategory,
     budgets,
+    hasAnyBudgets,
     editingBudgets,
     setEditingBudgets,
     onToggleBudgetEditor,

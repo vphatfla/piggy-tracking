@@ -1,7 +1,21 @@
 import { useState } from 'react'
-import { deleteBudget, putBudget, type Budget, type Category } from '../api'
+import { deleteBudget, getBudgets, putBudget, type Budget, type Category } from '../api'
 import { cents } from '../format'
+import { addMonths, formatMonthLabel } from '../month'
 import { inputClasses } from '../ui'
+import { Sheet } from './Sheet'
+
+/** A changed field with something to fall back to — the only case where
+ *  "this month onward" and "only this month" actually differ. A brand-new
+ *  limit has no previous value for a later month to revert to, so it's
+ *  written the same way regardless of which choice the user would make. */
+function hasChoice(categories: Category[], budgets: Budget[], drafts: Record<number, string>) {
+  return categories.some((c) => {
+    const current = budgets.find((b) => b.categoryId === c.id)
+    const draft = (drafts[c.id] ?? '').trim()
+    return draft !== '' && current && cents(current.amount) !== cents(draft)
+  })
+}
 
 /** The edit mode of the budgets section. Every category gets a field, including
  *  ones with no limit — this is the only place a budget is set, so a category
@@ -31,14 +45,26 @@ export function BudgetEditor({
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Open only when at least one changed category has a previous value to
+  // choose a treatment for — see hasChoice above.
+  const [confirming, setConfirming] = useState(false)
 
-  async function save() {
+  async function save(mode: 'forward' | 'once') {
     setBusy(true)
     setError(null)
+    setConfirming(false)
     try {
-      // Sequential rather than Promise.all: this is at most a handful of rows,
-      // and a failure half way through leaves a partial save that the refetch
-      // below reports honestly instead of a pile of parallel rejections.
+      const nextMonth = addMonths(month, 1)
+      // Only fetched for "once", and once for the whole save rather than per
+      // category: tells us which categories already have their own explicit
+      // row at nextMonth, which "once" must leave alone rather than
+      // overwrite with the pre-edit value.
+      const nextMonthBudgets = mode === 'once' ? await getBudgets(token, nextMonth) : []
+
+      // Sequential rather than Promise.all: this is at most a handful of rows
+      // (times up to two writes each in "once" mode), and a failure half way
+      // through leaves a partial save that the refetch below reports honestly
+      // instead of a pile of parallel rejections.
       for (const c of categories) {
         const current = budgets.find((b) => b.categoryId === c.id)
         const draft = (drafts[c.id] ?? '').trim()
@@ -47,6 +73,8 @@ export function BudgetEditor({
           // Clearing removes the row set for *this* month only. Blanking an
           // inherited value has nothing here to delete — that limit lives in an
           // earlier month, and a blank field is not a request to erase history.
+          // This is "this month reverts to whatever it inherits" already, so
+          // it never goes through the forward/once choice below.
           if (current && !current.inherited) await deleteBudget(token, c.id, month)
           continue
         }
@@ -56,12 +84,29 @@ export function BudgetEditor({
         if (current && cents(current.amount) === cents(draft)) continue
 
         await putBudget(token, { categoryId: c.id, month, amount: draft })
+
+        // "Only this month": pin next month to whatever this category scored
+        // before this edit, so the new number doesn't silently become the
+        // baseline forever after. Skipped when there's no previous value
+        // (nothing to revert to — see hasChoice) or when next month already
+        // has its own explicit row (already unaffected by this change).
+        if (mode === 'once' && current) {
+          const nextExplicit = nextMonthBudgets.find((b) => b.categoryId === c.id && !b.inherited)
+          if (!nextExplicit) {
+            await putBudget(token, { categoryId: c.id, month: nextMonth, amount: current.amount })
+          }
+        }
       }
       await onSaved()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setBusy(false)
     }
+  }
+
+  function onSavePress() {
+    if (hasChoice(categories, budgets, drafts)) setConfirming(true)
+    else void save('forward')
   }
 
   return (
@@ -106,13 +151,48 @@ export function BudgetEditor({
         </button>
         <button
           type="button"
-          onClick={() => void save()}
+          onClick={onSavePress}
           disabled={busy}
           className="flex min-h-11 items-center rounded-full bg-accent px-5 text-headline font-semibold text-on-accent transition-opacity duration-200 ease-out hover:opacity-90 active:opacity-75 disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface focus-visible:outline-none"
         >
           {busy ? 'Saving…' : 'Save'}
         </button>
       </div>
+
+      {/* Calendar's own "This event / All future events" prompt is the model
+          here: a save that would change what a later month scores against
+          needs the user to say whether that's the point or a one-off. */}
+      <Sheet open={confirming} onClose={() => setConfirming(false)} labelledBy="confirm-budget-title">
+        <div className="space-y-1 p-2 pb-1">
+          <h2
+            id="confirm-budget-title"
+            className="px-2 pt-1 text-footnote font-semibold tracking-wide text-label-secondary uppercase"
+          >
+            Apply changes
+          </h2>
+          <button
+            type="button"
+            onClick={() => void save('forward')}
+            className="flex min-h-11 w-full items-center rounded-control px-3 text-body text-label transition-colors duration-150 ease-out active:bg-surface-raised"
+          >
+            This month onward
+          </button>
+          <button
+            type="button"
+            onClick={() => void save('once')}
+            className="flex min-h-11 w-full items-center rounded-control px-3 text-body text-label transition-colors duration-150 ease-out active:bg-surface-raised"
+          >
+            Only {formatMonthLabel(month)}
+          </button>
+          <button
+            type="button"
+            onClick={() => setConfirming(false)}
+            className="flex min-h-11 w-full items-center rounded-control px-3 text-body text-label-secondary transition-colors duration-150 ease-out active:bg-surface-raised"
+          >
+            Cancel
+          </button>
+        </div>
+      </Sheet>
     </div>
   )
 }

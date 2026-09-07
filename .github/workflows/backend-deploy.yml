@@ -1,0 +1,126 @@
+name: Backend Build and Deploy
+
+# No oppy-marser equivalent to mirror — their site has no backend. Shape
+# still matches their style where it can (push to main, path-filtered,
+# workflow_dispatch, OIDC, environment: production); the build-in-CI,
+# push-to-ECR, pull-and-run-on-box mechanics are new to this repo.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['backend/**', 'docker-compose.yml', 'docker-compose.prod.yml', 'deploy/**']
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Build, Push, and Deploy Backend
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
+        env:
+          ECR_REPOSITORY: ${{ steps.ecr-login.outputs.registry }}/${{ secrets.AWS_ECR_BACKEND_REPOSITORY }}
+        run: |
+          docker build \
+            -t "${ECR_REPOSITORY}:${{ github.sha }}" \
+            -t "${ECR_REPOSITORY}:latest" \
+            ./backend
+          docker push "${ECR_REPOSITORY}:${{ github.sha }}"
+          docker push "${ECR_REPOSITORY}:latest"
+          echo "image=${ECR_REPOSITORY}:${{ github.sha }}" >> "$GITHUB_ENV"
+
+      - name: Upload deploy artifacts
+        env:
+          S3_BUCKET: ${{ secrets.AWS_S3_FRONTEND_BUCKET }}
+        run: |
+          # _deploy/ is a prefix in the same bucket the frontend uses — not
+          # served by CloudFront (no cache behavior maps to it), readable
+          # only by the backend instance's own IAM role. See
+          # terraform/cicd.tf's ReadDeployArtifacts statement.
+          aws s3 cp docker-compose.yml "s3://${S3_BUCKET}/_deploy/docker-compose.yml"
+          aws s3 cp docker-compose.prod.yml "s3://${S3_BUCKET}/_deploy/docker-compose.prod.yml"
+          aws s3 cp deploy/remote-deploy.sh "s3://${S3_BUCKET}/_deploy/remote-deploy.sh"
+
+      # Tags the image with the commit SHA, not `latest` — the box always
+      # runs exactly what this workflow run built, not whatever `latest`
+      # happens to point at by the time the command executes. Parameters go
+      # through a JSON file rather than an inline shorthand string — the
+      # command list nests double quotes that are too easy to get subtly
+      # wrong hand-escaped directly in a `run:` block.
+      - name: Trigger deploy via SSM
+        id: ssm
+        env:
+          INSTANCE_ID: ${{ secrets.AWS_BACKEND_INSTANCE_ID }}
+          S3_BUCKET: ${{ secrets.AWS_S3_FRONTEND_BUCKET }}
+        run: |
+          cat > /tmp/ssm-params.json <<EOF
+          {
+            "commands": [
+              "export ECR_IMAGE=${image}",
+              "export DEPLOY_BUCKET=${S3_BUCKET}",
+              "aws s3 cp s3://${S3_BUCKET}/_deploy/remote-deploy.sh /tmp/remote-deploy.sh",
+              "chmod +x /tmp/remote-deploy.sh",
+              "/tmp/remote-deploy.sh"
+            ]
+          }
+          EOF
+
+          command_id=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters file:///tmp/ssm-params.json \
+            --query 'Command.CommandId' \
+            --output text)
+          echo "command_id=$command_id" >> "$GITHUB_OUTPUT"
+
+      # The SSM API accepting the command isn't proof it worked — poll for
+      # actual completion and fail the job on the remote script's real exit
+      # status, same "verified by running things" bar the rest of this repo
+      # holds itself to.
+      - name: Wait for deploy to finish
+        env:
+          INSTANCE_ID: ${{ secrets.AWS_BACKEND_INSTANCE_ID }}
+        run: |
+          command_id="${{ steps.ssm.outputs.command_id }}"
+          for _ in $(seq 1 60); do
+            status=$(aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "$INSTANCE_ID" \
+              --query 'Status' --output text 2>/dev/null || echo "Pending")
+            case "$status" in
+              Success)
+                echo "Deploy succeeded."
+                exit 0
+                ;;
+              Failed|Cancelled|TimedOut)
+                echo "Deploy $status — output:"
+                aws ssm get-command-invocation \
+                  --command-id "$command_id" \
+                  --instance-id "$INSTANCE_ID" \
+                  --query 'StandardErrorContent' --output text
+                exit 1
+                ;;
+              *)
+                sleep 5
+                ;;
+            esac
+          done
+          echo "Timed out waiting for the deploy command" >&2
+          exit 1

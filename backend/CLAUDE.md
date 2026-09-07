@@ -117,6 +117,18 @@ Five models. See `prisma/schema.prisma` for the authoritative definition.
   if that stops being tiny. The full design record, including what was
   considered and rejected, is `docs/budgets.md`.
 
+  **`GET /api/budgets/exists`** answers "has this user ever set a budget, at
+  all" — independent of which month is asked about, unlike `GET /?month=`,
+  which only proves a budget exists at-or-before that month. It backs the
+  frontend's first-run nudge and is the only budgets route with no `month`.
+
+  **"Only this month"** (the frontend's forward-vs-once edit choice) is not a
+  route or a schema change — it's the client issuing a second `PUT` at next
+  month with the pre-edit value, so that month keeps scoring what it scored
+  before. See `docs/budgets.md` for why that's enough and what it can't do
+  (revert a category's very first-ever budget, since there's no earlier value
+  to write back).
+
 Referential behaviour is intentional and load-bearing:
 
 | Delete | Effect |

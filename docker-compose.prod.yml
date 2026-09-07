@@ -1,0 +1,21 @@
+# Production overlay — applied on top of docker-compose.yml, never in place
+# of it: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up`.
+# docker-compose.yml itself stays exactly as local dev depends on; this is
+# the only thing production needs on top of it.
+#
+# Replaces the db service's named volume with a bind mount into the EBS
+# volume terraform/main.tf's aws_ebs_volume.data provisions and
+# terraform/user_data.sh formats and mounts at /mnt/piggy-data — so
+# Postgres's data durably lives there instead of on the instance's root
+# volume / Docker's default volume location.
+#
+# Replaces the backend's local `build:` with a pre-built image from ECR —
+# deploy/remote-deploy.sh exports ECR_IMAGE before calling `docker compose
+# ... pull` and always passes --no-build, so the base file's `build:`
+# directive never fires here even though it's still present after merging.
+services:
+  db:
+    volumes:
+      - /mnt/piggy-data/postgres:/var/lib/postgresql/data
+  backend:
+    image: ${ECR_IMAGE}

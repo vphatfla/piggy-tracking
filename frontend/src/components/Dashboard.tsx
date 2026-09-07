@@ -33,6 +33,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     categories,
     onAddCategory,
     budgets,
+    hasAnyBudgets,
     editingBudgets,
     onToggleBudgetEditor,
     refreshBudgets,
@@ -235,9 +236,27 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                   </BudgetRow>
                 )}
                 {budgetRows.length === 0 && uncategorised === 0 && (
-                  <li className="px-4 py-8 text-center text-subheadline text-label-secondary">
-                    No budgets set for {formatMonthLabel(month)}.
-                  </li>
+                  hasAnyBudgets ? (
+                    <li className="px-4 py-8 text-center text-subheadline text-label-secondary">
+                      No budgets set for {formatMonthLabel(month)}.
+                    </li>
+                  ) : (
+                    // First-run only: a returning user with budgets set
+                    // elsewhere but genuinely none for the month in view
+                    // keeps the plain message above instead.
+                    <li className="px-4 py-8 text-center">
+                      <p className="text-subheadline text-label-secondary">
+                        Set a budget for a category to start tracking spending against it.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={onToggleBudgetEditor}
+                        className="mt-3 inline-flex min-h-11 items-center rounded-full bg-accent px-5 text-headline font-semibold text-on-accent transition-opacity duration-200 ease-out hover:opacity-90 active:opacity-75 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface focus-visible:outline-none"
+                      >
+                        Set a budget
+                      </button>
+                    </li>
+                  )
                 )}
               </ul>
             )

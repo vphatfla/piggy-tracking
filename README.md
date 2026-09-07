@@ -74,6 +74,7 @@ docker compose exec backend npm run seed
 | GET    | `/api/categories`        | bearer | Your categories, A–Z                             |
 | POST   | `/api/categories`        | bearer | `{ name }` — find-or-create; `200` if it existed, `201` if made |
 | GET    | `/api/budgets`           | bearer | `?month=YYYY-MM` (required) — the limit *in effect* per category |
+| GET    | `/api/budgets/exists`    | bearer | `{ exists: boolean }` — has this user ever set a budget, at all |
 | PUT    | `/api/budgets`           | bearer | `{ categoryId, month, amount }` — upserts one month's limit |
 | DELETE | `/api/budgets/:categoryId` | bearer | `?month=YYYY-MM`. `204`. Removes that month's row only |
 

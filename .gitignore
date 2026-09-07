@@ -21,3 +21,10 @@ npm-debug.log*
 # Editors
 .idea/
 .vscode/
+
+# Terraform — .terraform.lock.hcl IS committed (pins provider versions);
+# everything else here is a local scratch/cache directory or plan output.
+terraform/.terraform/
+terraform/*.tfplan
+terraform/*.tfstate
+terraform/*.tfstate.backup

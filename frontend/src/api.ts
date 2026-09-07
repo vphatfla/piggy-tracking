@@ -204,6 +204,12 @@ export const createCategory = (token: string, name: string) =>
 export const getBudgets = (token: string, month: string) =>
   request<Budget[]>(`/api/budgets?month=${month}`, {}, token)
 
+/** Has this user ever set a budget, at all — independent of which month is in
+ *  view. Used once for the first-run nudge; see the route's own comment for
+ *  why `GET /?month=` can't answer the same question. */
+export const getBudgetsExist = (token: string) =>
+  request<{ exists: boolean }>('/api/budgets/exists', {}, token)
+
 /** Upsert of one (categoryId, month) row. PUT, not POST: setting the same
  *  limit twice has to mean the same as setting it once. */
 export const putBudget = (

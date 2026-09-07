@@ -1,0 +1,180 @@
+name: CI
+
+# No AWS credentials anywhere in this file — everything here is checkable
+# without touching cloud infrastructure. terraform-deploy.yml is where the
+# terraform/ directory gets an actual `plan`, with real credentials.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Frontend — typecheck, lint, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc -b
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+  backend-typecheck:
+    name: Backend — typecheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+  backend-integration:
+    name: Backend — migrate, seed, boot, health check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+
+    # Mirrors docker-compose.yml's own db service — same image, same
+    # health-checked startup, so this is what "docker compose up" actually
+    # exercises, not a separate assumption about how Postgres behaves.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: piggy
+          POSTGRES_PASSWORD: piggy_ci_password
+          POSTGRES_DB: piggy
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U piggy -d piggy"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://piggy:piggy_ci_password@localhost:5432/piggy?schema=public
+      PORT: 3000
+      CORS_ORIGIN: http://localhost:5173
+      GOOGLE_CLIENT_ID: 000000000000-ci.apps.googleusercontent.com
+      JWT_ACCESS_SECRET: ci-only-access-secret-not-used-anywhere-real
+      JWT_REFRESH_SECRET: ci-only-refresh-secret-not-used-anywhere-real
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (prisma generate + tsc)
+        run: npm run build
+
+      - name: Apply migrations
+        run: npm run migrate:deploy
+
+      - name: Seed
+        run: npm run seed
+
+      - name: Boot the server and check /api/health
+        run: |
+          npm start &
+          server_pid=$!
+          for _ in $(seq 1 30); do
+            if curl -sf http://localhost:3000/api/health >/dev/null; then
+              echo "Healthy."
+              kill "$server_pid"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Server never became healthy" >&2
+          kill "$server_pid" 2>/dev/null || true
+          exit 1
+
+  backend-docker-build:
+    name: Backend — Docker image builds
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build (no push)
+        run: docker build ./backend
+
+  terraform:
+    name: Terraform — fmt + validate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./terraform
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+          terraform_wrapper: false
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      # No backend config, no AWS credentials — validate only checks HCL
+      # syntax and type correctness, it never calls AWS. terraform-deploy.yml
+      # is what actually plans against real state/credentials.
+      - name: Terraform Init (no backend)
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        run: terraform validate
