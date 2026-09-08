@@ -128,9 +128,19 @@ data "aws_ami" "al2023_arm64" {
   most_recent = true
   owners      = ["amazon"]
 
+  # "al2023-ami-*-arm64" is too broad - it also matches the ECS-optimized
+  # variant ("al2023-ami-ecs-hvm-*-arm64"), and most_recent picked that one
+  # over the plain AMI. Confirmed live: the running instance's AMI was
+  # "al2023-ami-ecs-hvm-...-arm64", which ships amazon-ecs-init and
+  # auto-starts an ecs-agent container this box never wanted - pure waste on
+  # a 512MB instance, found while chasing an unrelated outage. Anchoring on
+  # "2023." (the plain AMI's version prefix) excludes both that and the
+  # "-minimal-" variant. Kernel pinned to 6.1 too - AWS publishes 6.1/6.12/
+  # 6.18 kernel variants with identical timestamps, and most_recent doesn't
+  # deterministically break that tie.
   filter {
     name   = "name"
-    values = ["al2023-ami-*-arm64"]
+    values = ["al2023-ami-2023.*-kernel-6.1-arm64"]
   }
   filter {
     name   = "architecture"
