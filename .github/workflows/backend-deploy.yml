@@ -34,16 +34,29 @@ jobs:
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
+      # ubuntu-latest runners are amd64; the backend instance is a t4g.nano
+      # (arm64/Graviton). A plain `docker build` on this runner produces an
+      # amd64 image that the box can pull fine but can't execute — "exec
+      # format error", crash-looping forever. Confirmed the hard way against
+      # the real box. QEMU + buildx cross-builds for arm64 instead.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build and push backend image
         env:
           ECR_REPOSITORY: ${{ steps.ecr-login.outputs.registry }}/${{ secrets.AWS_ECR_BACKEND_REPOSITORY }}
         run: |
-          docker build \
+          docker buildx build \
+            --platform linux/arm64 \
             -t "${ECR_REPOSITORY}:${{ github.sha }}" \
             -t "${ECR_REPOSITORY}:latest" \
+            --push \
             ./backend
-          docker push "${ECR_REPOSITORY}:${{ github.sha }}"
-          docker push "${ECR_REPOSITORY}:latest"
           echo "image=${ECR_REPOSITORY}:${{ github.sha }}" >> "$GITHUB_ENV"
 
       - name: Upload deploy artifacts
