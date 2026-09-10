@@ -273,12 +273,34 @@ routine "no session" 401 from a real failure.
 take a `userId` any more: the backend derives it from the token, so there is no
 id to pass and no way to ask for someone else's rows.
 
-`request()` always parses a JSON body, so a **204 route cannot go through it** —
-`deleteTransaction` and `deleteBudget` are hand-written `fetch` calls that
-duplicate its error handling and return `void`. A new endpoint answering 204
-needs the same treatment; routing it through `request()` throws on the empty
-body *after* the write has already happened, which reads as a failed delete that
-actually succeeded.
+Three layers, and a new call should pick the right one rather than reaching for
+`fetch`: `send()` performs the request and owns the 401 retry below, `request()`
+adds `res.json()`, and `requestVoid()` is `send` with no body parse. **A 204
+route must use `requestVoid`** — `request()` always parses a JSON body, so an
+empty response throws *after* the write has already happened, which reads as a
+failed delete that actually succeeded.
+
+**An expired access token is retried, not surfaced.** The token lives 15 minutes
+and the session behind it lives 30 days, so mid-session expiry is routine: on a
+401 from an authed call, `send()` renews once and replays the request. Three
+rules hold it together:
+
+- **The renewal is single-flight.** Refreshing *rotates*, so two concurrent
+  renewals revoke each other and end the session — the same race `App.tsx`'s
+  mount-effect ref guards. `useDashboard.refresh()` fires three calls at once and
+  they all expire together, so they must share one renewal.
+- **`/api/auth/*` is excluded from the retry**, or renewing recurses into itself.
+- **Retried once, never twice.** A second 401 is a real one, and a failed
+  renewal means the session is over: `api.ts` calls the `onSessionLost` callback
+  and `App.tsx` lands on `<SignIn />` rather than banner-ing an error over a
+  dashboard that can no longer load anything.
+
+The live token is held in a module variable in `api.ts`, and that is deliberate:
+`Session.accessToken` is a dependency of the dashboard's fetch, so writing each
+renewal back into React state would refetch the month and collapse whatever the
+user had open, twice an hour, for nothing. Callers keep passing the token they
+were handed; `send()` prefers the renewed one. `App.tsx` is the only thing that
+calls `setSessionToken` — on sign-in, on restore, and with `null` on sign-out.
 
 `ApiError` declares `status` as a field and assigns it in the constructor rather
 than using a parameter property — `tsconfig.app.json` sets `erasableSyntaxOnly`,
@@ -295,9 +317,13 @@ which rejects the shorthand.
 - **`credentials: 'include'` is mandatory on every `/api/auth` call.** Without it
   the browser neither sends nor stores the httpOnly refresh cookie, and sessions
   silently stop surviving a reload.
-- **The access token lives in React state only.** Never `localStorage` or
-  `sessionStorage` — anything an XSS can read, it can exfiltrate, and the token
-  would outlive the tab.
+- **The access token lives in memory only** — React state plus the module
+  variable in `api.ts` that renewals update (see § Backend calls). Never
+  `localStorage` or `sessionStorage`: anything an XSS can read, it can
+  exfiltrate, and the token would outlive the tab.
+- **Expiry is invisible to the user.** `api.ts` renews on a 401 and replays the
+  call; the only way that surfaces is `onSessionLost`, which means the refresh
+  cookie itself is gone or already rotated, and the app returns to sign-in.
 - The mount effect is guarded by a `useRef` flag. This is not cosmetic:
   refreshing **rotates** the token, so StrictMode's double-invoked effect would
   present an already-revoked cookie on the second call and log the user out. Do
@@ -455,7 +481,32 @@ category at once, rather than an edit control per row, because setting limits is
 an occasional act that wants one screen. Every category gets a field including
 ones with no limit, since this is the only place a budget can be added.
 
-Three rules, all of them protecting the inheritance chain:
+**It is also the only place a category can be renamed or deleted**, for the same
+reason: these rows are the app's one full list of them, and a category with no
+limit and no spending appears nowhere else. Each row is a leading red minus
+(iOS's own list-editing affordance), a name field, and the limit field.
+
+- **A rename is a draft like the amount is**, applied on Save, and an untouched
+  or blanked one is never written — a blank name field is a mistake, not a
+  request to erase the name. Renames deliberately **skip** the forward-vs-once
+  sheet below: a name is not month-scoped, so no later month can inherit it or
+  fail to. `onRenameCategory` also rewrites the name flattened onto each
+  transaction in memory, which `serializeTransaction` put there.
+- **A delete applies immediately, once confirmed** — not batched into Save. It
+  removes the row being edited, so deferring it would mean carrying a tombstone
+  through every draft. The confirmation is a destructive `Sheet` action sheet,
+  and its wording has to stay honest about two things the API cannot soften:
+  the transactions **survive** and become Uncategorised, and the limits are gone
+  in **every** month, not the one on screen.
+- **`onDeleteCategory` re-points that category's transactions to
+  `categoryId: null` in local state**, and that is load-bearing rather than
+  tidiness: `spendByCategory` keys its Uncategorised bucket on
+  `categoryId === null`, so rows left pointing at a category that no longer
+  exists would drop their money out of the breakdown entirely and the rows would
+  visibly stop summing to the month total. Its budget rows are dropped from
+  state too — the server cascaded them.
+
+Three more rules, all of them protecting the inheritance chain:
 
 - **An inherited limit is seeded into its field as a real value**, not a
   placeholder. It *is* the number in force and should read as one.
@@ -562,17 +613,36 @@ enough budget rows to push the trigger off screen, an inline disclosure
 appended after the whole section would open somewhere the user isn't looking.
 `Sheet` is the app's one true overlay primitive, kept generic (scrim + a
 slide-up panel, no form-specific logic) so a later Scan/Upload flow can reuse
-it without copying the chrome. It renders only while `open` is true (set by
-choosing "Add manually"), and returns `null` while closed rather than
-hiding-in-place — that makes every open a fresh mount, which is what makes
-the slide-in transition replay each time rather than only once. No focus
-trap: same "closes on outside click/Escape, doesn't fight the browser's own
-tab order" shape the popover menus already use. The form inside is otherwise
-unchanged: same fields, same close (×) button, same
-`merchantInputRef` + `requestAnimationFrame` autofocus, and submitting still
-does **not** close it — the existing "don't reset the category" behaviour
-(see § Categories above) means consecutive entries stay fast, and closing on
-every save would undo that.
+it without copying the chrome. No focus trap: same "closes on outside
+click/Escape, doesn't fight the browser's own tab order" shape the popover
+menus already use.
+
+**`Sheet` stays mounted while closed**, parked at `translate-y-full` behind a
+transparent scrim, and that is what gives it a real dismissal — a sheet that
+returns `null` when closed cannot animate *out*, because the element it would
+animate is already gone. Staying mounted also makes both directions pure CSS off
+one class: no `requestAnimationFrame`, no timers, and no state in the component
+at all. Two things make it safe and must not be dropped: **`inert` while
+closed**, which takes the whole subtree out of the a11y tree and out of the tab
+order so an off-screen form can't be read out or tabbed into, and
+**`pointer-events-none`**, which matters most under `prefers-reduced-motion` —
+`index.css` collapses every transition to 0.01ms there, and an invisible scrim
+that still ate taps would be worse than no animation at all.
+
+**Submitting confirms in the button, then closes the sheet.** `useDashboard`'s
+`addStatus` (`idle` → `saving` → `saved`) drives it: `saving` disables the Add
+button, which is also what stops a double tap entering the same spending twice;
+`saved` swaps it for a tick with the `animate-pop` keyframes, held ~450ms by an
+effect with a `clearTimeout` cleanup — so closing the sheet by hand mid-hold
+cancels the dismissal instead of firing into a component that has moved on. The
+button is the confirmation, which is the Apple idiom; a toast would be a third
+signal on top of the tick and the new row already rendering behind the sheet.
+Closing on success is a **reversal** of this app's earlier "stay open for the
+next entry" behaviour, and it costs less than it looks: the drafts and the
+category live in `useDashboard`, not in the sheet, so reopening starts where the
+last entry left off (see § Categories) — one extra tap, not a lost flow. The
+rest of the form is unchanged: same fields, same close (×) button, same
+`merchantInputRef` + `requestAnimationFrame` autofocus.
 
 **`AddTransactionMenu`'s trigger is solid (`bg-accent`), not tinted.** Every
 other icon-only action on the dashboard (`SlidersIcon` for the budget editor,

@@ -29,8 +29,11 @@ export const ChevronDown = () => (
   </svg>
 )
 
+// Colour comes from the caller: this is a tick on an accent-tinted menu row in
+// one place and on a filled accent button in another, and those need opposite
+// foregrounds.
 export const CheckIcon = () => (
-  <svg viewBox="0 0 24 24" className="size-4 text-accent-text" fill="none" aria-hidden>
+  <svg viewBox="0 0 24 24" className="size-4" fill="none" aria-hidden>
     <path d="M5 13l4 4 10-10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 )
@@ -80,5 +83,14 @@ export const UploadIcon = () => (
       strokeLinecap="round"
       strokeLinejoin="round"
     />
+  </svg>
+)
+
+// The iOS list-editing affordance: a filled red minus, not a trash can. Colour
+// comes from the caller so it can sit at reduced opacity while a save is in
+// flight.
+export const MinusCircleIcon = () => (
+  <svg viewBox="0 0 24 24" className="size-5" fill="currentColor" aria-hidden>
+    <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm5 11H7a1 1 0 0 1 0-2h10a1 1 0 0 1 0 2Z" />
   </svg>
 )

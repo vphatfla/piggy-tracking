@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { ApiError, logout as logoutRequest, refreshSession, signInWithGoogle, type Session } from './api'
+import {
+  ApiError,
+  logout as logoutRequest,
+  onSessionLost,
+  refreshSession,
+  setSessionToken,
+  signInWithGoogle,
+  type Session,
+} from './api'
 import { Dashboard } from './components/Dashboard'
 import { SignIn } from './SignIn'
 
@@ -11,6 +19,25 @@ type SessionState =
 export default function App() {
   const [state, setState] = useState<SessionState>({ status: 'restoring' })
 
+  // Handing the token to api.ts is what lets it renew on a 401 later — every
+  // other caller keeps passing the one it was given.
+  function authenticate(session: Session) {
+    setSessionToken(session)
+    setState({ status: 'authenticated', session })
+  }
+
+  // api.ts renews the access token by itself when one expires mid-session — the
+  // user never sees that. It can only fail one way, by the refresh cookie being
+  // gone or already rotated, and that is the end of the session: land on the
+  // sign-in screen rather than an error banner over a dashboard that can no
+  // longer load anything.
+  useEffect(() => {
+    onSessionLost(() => {
+      window.google?.accounts.id.disableAutoSelect()
+      setState({ status: 'anonymous' })
+    })
+  }, [])
+
   // Silent login. The ref guard matters: StrictMode invokes effects twice in
   // dev, and because refreshing *rotates* the token, a second concurrent call
   // would present the already-revoked cookie and get a 401.
@@ -20,7 +47,7 @@ export default function App() {
     restoreStarted.current = true
 
     refreshSession()
-      .then((session) => setState({ status: 'authenticated', session }))
+      .then((session) => authenticate(session))
       .catch((e: unknown) => {
         // A 401 is the normal "no session to restore" answer, not a failure.
         const error = e instanceof ApiError && e.status === 401 ? undefined : String(e)
@@ -30,7 +57,7 @@ export default function App() {
 
   async function onIdToken(idToken: string) {
     try {
-      setState({ status: 'authenticated', session: await signInWithGoogle(idToken) })
+      authenticate(await signInWithGoogle(idToken))
     } catch (e) {
       setState({ status: 'anonymous', error: e instanceof Error ? e.message : String(e) })
     }
@@ -42,6 +69,7 @@ export default function App() {
     try {
       await logoutRequest()
     } finally {
+      setSessionToken(null)
       window.google?.accounts.id.disableAutoSelect()
       setState({ status: 'anonymous' })
     }

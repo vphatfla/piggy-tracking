@@ -127,8 +127,9 @@ re-deriving them from the code is slower than reading this.
 ## Where this is going
 
 Shipped: spending dates, the month view with optional sorting, categories with
-an inline-create picker, tap-to-expand editing and deletion, and per-category
-monthly budgets with a spent-vs-limit breakdown.
+an inline-create picker (renamed and deleted from the budget editor),
+tap-to-expand editing and deletion, and per-category monthly budgets with a
+spent-vs-limit breakdown.
 
 The two roadmap milestones were built in the other order, and that is worth
 knowing: **budgets landed first, and the breakdown came with them** — the
@@ -157,9 +158,14 @@ Google OAuth with rotating refresh tokens. The shape, in one paragraph so nobody
 reinvents it: the frontend gets a Google **ID token**, posts it to
 `POST /api/auth/google`, and receives a short-lived **access token** (JWT, payload
 is `{ userId }` and nothing else) in the JSON body plus a **refresh token** in an
-httpOnly cookie. The access token is held in React state — never `localStorage`.
+httpOnly cookie. The access token is held in memory — React state plus the
+module variable in `api.ts` that renewals update — never `localStorage`.
 `POST /api/auth/refresh` rotates: it revokes the presented token and issues a
-replacement, and is also the silent-login call on page load.
+replacement, and is also the silent-login call on page load — **and the retry
+the frontend performs by itself whenever a call 401s mid-session**, so a
+15-minute access token is never something the user sees expire. That renewal is
+single-flight in `frontend/src/api.ts`, because rotation means two concurrent
+refreshes revoke each other; details in `frontend/CLAUDE.md`.
 
 Two rules that are easy to break:
 

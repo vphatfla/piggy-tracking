@@ -62,6 +62,14 @@ model Budget {
   without its category, but a limit for a category that no longer exists is
   meaningless.
 
+  This is now reachable from the UI — the budget editor is the only place a
+  category can be deleted — so the confirmation there has to say both halves out
+  loud: the spending survives as Uncategorised, and the limits are gone in
+  *every* month, not just the one being viewed. Note what that means for
+  history: a past month scored against a deleted category is no longer scored
+  against anything. There is no undo, and nothing about the inheritance chain
+  can restore it.
+
 - **Inheritance is resolved in the application, not in one clever query.** The
   effective limit for category C in month M is the row with the greatest
   `month <= M`. That is a Postgres `DISTINCT ON`, which Prisma's `distinct` is

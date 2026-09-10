@@ -181,6 +181,19 @@ bounds, whereas two endpoints computing the same window would drift.
 object, so query params validate through the same path as bodies, and a repeated
 `?from=a&from=b` arrives as an array and fails its `typeof` check.
 
+**`PATCH` and `DELETE /api/categories/:id`** follow the same `updateMany` /
+`deleteMany`-with-`userId` rule as the transactions routes, and `PATCH` rejects
+a name that already belongs to another of the caller's categories, **compared
+case-insensitively** — the same rule `POST` matches on when it does its
+find-or-create. `@@unique([userId, name])` only catches exact duplicates, so
+renaming to "groceries" while "Groceries" exists would otherwise produce two
+categories the picker shows as the same thing; a concurrent pair of renames can
+still reach the index, which answers `P2002` and maps to the same 409.
+
+Deleting a category deletes the label, never the spending: the schema does the
+rest (transactions `SetNull`, budgets `Cascade`), so the route needs no cleanup
+of its own — see the referential table above for why that asymmetry is right.
+
 Ownership the FK cannot enforce needs an explicit check. `POST /api/transactions`
 verifies that both the supplied `receiptId` **and** `categoryId` belong to the
 caller, because a foreign key only proves the row exists, not whose it is.

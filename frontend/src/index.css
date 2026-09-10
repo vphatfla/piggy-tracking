@@ -63,6 +63,26 @@
   /* Themed, because a drop shadow is invisible on black — in dark mode a
      raised surface is a lighter grey and nothing else. */
   --shadow-card: var(--p-shadow-card);
+
+  /* The confirmation tick on the add-transaction button. Overshoots slightly
+     and settles, the way an iOS control acknowledges a tap — it explains a
+     change of state, which is the only reason motion happens here. Applied as
+     `motion-safe:animate-pop`, so reduced motion simply gets the tick. */
+  --animate-pop: pop 200ms ease-out;
+
+  @keyframes pop {
+    0% {
+      transform: scale(0.6);
+      opacity: 0;
+    }
+    60% {
+      transform: scale(1.12);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
 }
 
 /* Bright (daylight) — the default. */

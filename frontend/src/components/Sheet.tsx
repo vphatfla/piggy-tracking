@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 
 /** Generic bottom-sheet chrome: scrim + a panel that rises from the bottom
  *  edge. This is the app's one true overlay primitive, reserved for actions
@@ -6,7 +6,20 @@ import { useEffect, useState, type ReactNode } from 'react'
  *  the header, the way Calendar/Reminders present their own "new" flows.
  *  Everything else (EditPanel, BudgetEditor) stays an inline disclosure,
  *  because those are edits of something already on screen. Deliberately
- *  generic so a later Scan/Upload flow can reuse this chrome. */
+ *  generic so a later Scan/Upload flow can reuse this chrome.
+ *
+ *  **The panel stays mounted while closed**, parked at `translate-y-full`
+ *  behind a transparent scrim. That is what gives it a real dismissal: a sheet
+ *  that returns `null` when closed cannot animate out, because the element it
+ *  would animate is already gone. Staying mounted also means both directions
+ *  are pure CSS off one class — no rAF, no timers, and no state here at all.
+ *
+ *  `inert` is what makes that safe: while closed the whole subtree is out of
+ *  the a11y tree and unfocusable, so an off-screen form can't be tabbed into
+ *  or read out. `pointer-events-none` covers the same ground for the scrim,
+ *  which matters most under `prefers-reduced-motion` — index.css collapses
+ *  every transition to 0.01ms there, and an invisible scrim that still ate
+ *  taps would be worse than no animation at all. */
 export function Sheet({
   open,
   onClose,
@@ -18,31 +31,29 @@ export function Sheet({
   labelledBy: string
   children: ReactNode
 }) {
-  // Starts false on every mount and flips true a frame later, so the panel
-  // renders at translate-y-full first and the transition to translate-y-0
-  // actually animates instead of snapping straight to open. Returning null
-  // while closed (below) makes this a fresh mount each time the sheet opens,
-  // so the slide-in replays every time.
-  const [shown, setShown] = useState(false)
-
+  // No listener while closed — the same shape every other dismissible surface
+  // in this app uses.
   useEffect(() => {
-    const id = requestAnimationFrame(() => setShown(true))
-    return () => cancelAnimationFrame(id)
-  }, [])
-
-  useEffect(() => {
+    if (!open) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [onClose])
-
-  if (!open) return null
+  }, [open, onClose])
 
   return (
-    <div className="fixed inset-0 z-20 flex items-end justify-center">
-      <div className="absolute inset-0 bg-scrim" onClick={onClose} aria-hidden="true" />
+    <div
+      inert={!open}
+      className={`fixed inset-0 z-20 flex items-end justify-center ${open ? '' : 'pointer-events-none'}`}
+    >
+      <div
+        className={`absolute inset-0 bg-scrim transition-opacity duration-300 ease-out ${
+          open ? 'opacity-100' : 'opacity-0'
+        }`}
+        onClick={onClose}
+        aria-hidden="true"
+      />
       {/* No focus trap: consistent with the popover menus elsewhere in the
           app, which also just close on outside click/Escape rather than
           trapping tab order. */}
@@ -51,7 +62,7 @@ export function Sheet({
         aria-modal="true"
         aria-labelledby={labelledBy}
         className={`relative w-full max-w-xl rounded-t-card bg-surface shadow-card pb-[max(1rem,env(safe-area-inset-bottom))] transition-transform duration-300 ease-out ${
-          shown ? 'translate-y-0' : 'translate-y-full'
+          open ? 'translate-y-0' : 'translate-y-full'
         }`}
       >
         <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-separator" aria-hidden="true" />

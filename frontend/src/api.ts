@@ -76,23 +76,98 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...init.headers,
-    },
-  })
-  if (!res.ok) {
-    const detail = await res.json().catch(() => null)
-    throw new ApiError(
-      res.status,
-      `${init.method ?? 'GET'} ${path} failed: ${res.status}${detail?.error ? ` — ${detail.error}` : ''}`,
-    )
+// --- the live access token -------------------------------------------------
+// The access token lives 15 minutes; the session behind it lives 30 days. This
+// module holds the current one and renews it on the fly, so an expiry is never
+// something a screen has to show the user.
+//
+// It is held *here* rather than pushed back into React state on every renewal:
+// `Session.accessToken` is a dependency of the dashboard's fetch, so writing a
+// new one into state would refetch the month and collapse whatever the user had
+// open, twice an hour, for nothing. Callers keep passing the token they were
+// given — `send` prefers this one when it has been renewed since.
+let currentToken: string | null = null
+let renewal: Promise<Session> | null = null
+let onLost: (() => void) | null = null
+
+export function setSessionToken(session: Session | null): void {
+  currentToken = session?.accessToken ?? null
+}
+
+/** Called when a renewal fails, i.e. the refresh cookie is gone, expired, or
+ *  already rotated: the session is over and only App.tsx can say so. */
+export function onSessionLost(callback: () => void): void {
+  onLost = callback
+}
+
+/** Single-flight, and that is load-bearing: refreshing *rotates*, so two
+ *  concurrent renewals revoke each other and log the user out — the same race
+ *  App.tsx's mount-effect ref guards against. The dashboard fires three calls
+ *  in one Promise.all, so all three can expire together and must share one. */
+function renew(): Promise<Session> {
+  renewal ??= refreshSession()
+    .then((session) => {
+      currentToken = session.accessToken
+      return session
+    })
+    .catch((e: unknown) => {
+      currentToken = null
+      onLost?.()
+      throw e
+    })
+    .finally(() => {
+      renewal = null
+    })
+  return renewal
+}
+
+const withAuth = (init: RequestInit, token?: string): RequestInit => ({
+  ...init,
+  headers: {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...init.headers,
+  },
+})
+
+/** Every request goes through here. A 401 on an authed call means the access
+ *  token expired mid-session: renew once and replay the request. Auth routes
+ *  are excluded because renewing *is* one of them — retrying there would
+ *  recurse. A failed renewal returns the original 401 so the caller still sees
+ *  a real error rather than hanging. */
+async function send(path: string, init: RequestInit, token?: string): Promise<Response> {
+  const res = await fetch(`${API_URL}${path}`, withAuth(init, currentToken ?? token))
+  if (res.status !== 401 || !token || path.startsWith('/api/auth')) return res
+
+  try {
+    const session = await renew()
+    // Once, never twice: a second 401 is a real one.
+    return await fetch(`${API_URL}${path}`, withAuth(init, session.accessToken))
+  } catch {
+    return res
   }
+}
+
+async function failure(path: string, init: RequestInit, res: Response): Promise<ApiError> {
+  const detail = await res.json().catch(() => null)
+  return new ApiError(
+    res.status,
+    `${init.method ?? 'GET'} ${path} failed: ${res.status}${detail?.error ? ` — ${detail.error}` : ''}`,
+  )
+}
+
+async function request<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
+  const res = await send(path, init, token)
+  if (!res.ok) throw await failure(path, init, res)
   return res.json() as Promise<T>
+}
+
+/** For the 204 routes. `request` always parses a JSON body, so routing an empty
+ *  response through it throws *after* the write has already happened — which
+ *  reads as a failed delete that actually succeeded. */
+async function requestVoid(path: string, init: RequestInit, token: string): Promise<void> {
+  const res = await send(path, init, token)
+  if (!res.ok) throw await failure(path, init, res)
 }
 
 // --- auth ------------------------------------------------------------------
@@ -172,21 +247,9 @@ export const updateTransaction = (
     token,
   )
 
-/** 204, no body — so this one cannot go through `request`, which always parses
- *  JSON. Hard delete: there is no trash to restore from. */
-export async function deleteTransaction(token: string, id: number): Promise<void> {
-  const res = await fetch(`${API_URL}/api/transactions/${id}`, {
-    method: 'DELETE',
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  if (!res.ok) {
-    const detail = await res.json().catch(() => null)
-    throw new ApiError(
-      res.status,
-      `DELETE /api/transactions/${id} failed: ${res.status}${detail?.error ? ` — ${detail.error}` : ''}`,
-    )
-  }
-}
+/** 204, no body. Hard delete: there is no trash to restore from. */
+export const deleteTransaction = (token: string, id: number) =>
+  requestVoid(`/api/transactions/${id}`, { method: 'DELETE' }, token)
 
 export const getCategories = (token: string) => request<Category[]>('/api/categories', {}, token)
 
@@ -195,6 +258,21 @@ export const getCategories = (token: string) => request<Category[]>('/api/catego
  *  treat the response as "the category to select". */
 export const createCategory = (token: string, name: string) =>
   request<Category>('/api/categories', { method: 'POST', body: JSON.stringify({ name }) }, token)
+
+/** Rename. 409 when the name already belongs to another of your categories,
+ *  compared case-insensitively — the same rule `createCategory` matches on. */
+export const updateCategory = (token: string, id: number, name: string) =>
+  request<Category>(
+    `/api/categories/${id}`,
+    { method: 'PATCH', body: JSON.stringify({ name }) },
+    token,
+  )
+
+/** Deletes the label, not the spending: this category's transactions survive
+ *  with `categoryId: null` (they read as "Uncategorised" from then on) while
+ *  its limits are removed in *every* month. 204. */
+export const deleteCategory = (token: string, id: number) =>
+  requestVoid(`/api/categories/${id}`, { method: 'DELETE' }, token)
 
 // --- budgets ---------------------------------------------------------------
 
@@ -219,17 +297,6 @@ export const putBudget = (
 
 /** Removes the row set *for that exact month*. The category then falls back to
  *  whatever earlier month it inherits from — which may be another number, not
- *  "no budget". 204, so it cannot go through `request`. */
-export async function deleteBudget(token: string, categoryId: number, month: string): Promise<void> {
-  const res = await fetch(`${API_URL}/api/budgets/${categoryId}?month=${month}`, {
-    method: 'DELETE',
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  if (!res.ok) {
-    const detail = await res.json().catch(() => null)
-    throw new ApiError(
-      res.status,
-      `DELETE /api/budgets/${categoryId} failed: ${res.status}${detail?.error ? ` — ${detail.error}` : ''}`,
-    )
-  }
-}
+ *  "no budget". 204. */
+export const deleteBudget = (token: string, categoryId: number, month: string) =>
+  requestVoid(`/api/budgets/${categoryId}?month=${month}`, { method: 'DELETE' }, token)

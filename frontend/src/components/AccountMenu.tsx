@@ -69,7 +69,7 @@ export function AccountMenu({
               className="flex min-h-11 w-full items-center justify-between px-4 text-body text-label transition-colors duration-200 ease-out hover:bg-surface"
             >
               {opt.label}
-              {themePref === opt.value ? <CheckIcon /> : null}
+              {themePref === opt.value ? <span className="text-accent-text"><CheckIcon /></span> : null}
             </button>
           ))}
 

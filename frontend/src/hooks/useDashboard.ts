@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   createCategory,
   createTransaction,
+  deleteCategory,
   getBudgets,
   getBudgetsExist,
   getCategories,
   getReceipts,
   getTransactions,
+  updateCategory,
   type Budget,
   type Category,
   type Receipt,
@@ -19,6 +21,9 @@ import { cents, sumMoney, todayIso } from '../format'
 import { addMonths, currentMonth, monthBounds } from '../month'
 import { sortTransactions, type Sort, type SortKey } from '../sort'
 import { applyThemePreference, getStoredThemePreference, type ThemePreference } from '../theme'
+
+/** Where the add-transaction form is in its submit cycle. */
+export type AddStatus = 'idle' | 'saving' | 'saved'
 
 /** All of Dashboard's state, effects, and derived data, kept out of the
  *  component so the JSX in Dashboard.tsx is rendering only. Every ref-based
@@ -61,6 +66,10 @@ export function useDashboard(session: Session) {
   // named ways to add a transaction, chosen from AddTransactionMenu, rather
   // than the only thing that could ever sit here.
   const [addingTransaction, setAddingTransaction] = useState(false)
+  // 'saving' disables the Add button (so a double tap cannot enter the same
+  // spending twice) and 'saved' shows the tick before the sheet dismisses
+  // itself — see the effect further down.
+  const [addStatus, setAddStatus] = useState<AddStatus>('idle')
   const merchantInputRef = useRef<HTMLInputElement>(null)
   // null means "nothing picked yet, follow the default" — see selectedCategory.
   const [categoryId, setCategoryId] = useState<number | null>(null)
@@ -168,9 +177,49 @@ export function useDashboard(session: Session) {
     return category
   }
 
+  /** Rename, applied to state only once the server has confirmed — same rule
+   *  every other write here follows. The 409 for a name already in use is the
+   *  caller's to surface. */
+  async function onRenameCategory(id: number, name: string) {
+    const renamed = await updateCategory(accessToken, id, name)
+    setCategories((cs) =>
+      cs.map((c) => (c.id === id ? renamed : c)).sort((a, b) => a.name.localeCompare(b.name)),
+    )
+    // The name is flattened onto each transaction (see serializeTransaction),
+    // so the rows in memory still carry the old one until this.
+    setTransactions((ts) =>
+      ts.map((t) => (t.categoryId === id ? { ...t, category: renamed.name } : t)),
+    )
+  }
+
+  /** Deleting a category deletes the label, never the spending. The server
+   *  side of that is the schema's SetNull/Cascade pair; this is the same
+   *  outcome applied to the copies in memory, rather than a refetch — the
+   *  no-refetch-after-a-write rule holds here too.
+   *
+   *  Re-pointing the transactions is the load-bearing part: `spendByCategory`
+   *  keys its Uncategorised bucket on `categoryId === null`, so leaving them
+   *  pointed at a category that no longer exists would drop their money out of
+   *  the breakdown entirely and the rows would stop summing to the month. */
+  async function onDeleteCategory(id: number) {
+    await deleteCategory(accessToken, id)
+    setCategories((cs) => cs.filter((c) => c.id !== id))
+    // Its budget rows cascaded away server-side, in every month.
+    setBudgets((bs) => bs.filter((b) => b.categoryId !== id))
+    setTransactions((ts) =>
+      ts.map((t) => (t.categoryId === id ? { ...t, categoryId: null, category: null } : t)),
+    )
+    // Its drill-down is about to stop existing. The add form's picker needs no
+    // help: every branch of `selectedCategory` already checks the id is still
+    // in `categories`.
+    setExpandedCategoryId((cur) => (cur === id ? null : cur))
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!merchant.trim() || !amount.trim() || !date || selectedCategory === null) return
+    if (addStatus !== 'idle') return
+    setAddStatus('saving')
     try {
       await createTransaction(accessToken, {
         merchantName: merchant.trim(),
@@ -182,16 +231,34 @@ export function useDashboard(session: Session) {
       setAmount('')
       // The category is deliberately *not* reset: consecutive entries are
       // usually the same kind of spending, and re-picking every time is the
-      // friction that makes people stop logging.
+      // friction that makes people stop logging. The sheet closes now, but the
+      // draft outlives it — reopening starts where this one left off.
       setCategoryId(selectedCategory)
       // Back to today, not to the viewed month: entering into September while
       // looking at June is a mistake, not a feature.
       setDate(todayIso())
       await refresh()
+      setAddStatus('saved')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
+      // Back to an editable form with the entry still in it — the sheet stays
+      // open so the user can retry rather than losing what they typed.
+      setAddStatus('idle')
     }
   }
+
+  // The tick is held long enough to read, then the sheet dismisses itself. A
+  // timeout with a cleanup rather than a chain of setTimeouts inside onSubmit:
+  // closing the sheet by hand mid-hold cancels it instead of firing into a
+  // component that has moved on.
+  useEffect(() => {
+    if (addStatus !== 'saved') return
+    const id = setTimeout(() => {
+      setAddingTransaction(false)
+      setAddStatus('idle')
+    }, 450)
+    return () => clearTimeout(id)
+  }, [addStatus])
 
   function onViewChange(next: View) {
     setView(next)
@@ -298,6 +365,8 @@ export function useDashboard(session: Session) {
     transactionsForCategory,
     categories,
     onAddCategory,
+    onRenameCategory,
+    onDeleteCategory,
     budgets,
     hasAnyBudgets,
     editingBudgets,
@@ -311,6 +380,7 @@ export function useDashboard(session: Session) {
     },
     addingTransaction,
     setAddingTransaction,
+    addStatus,
     merchantInputRef,
     merchant,
     setMerchant,
