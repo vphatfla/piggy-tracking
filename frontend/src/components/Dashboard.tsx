@@ -32,6 +32,8 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     transactionsForCategory,
     categories,
     onAddCategory,
+    onRenameCategory,
+    onDeleteCategory,
     budgets,
     hasAnyBudgets,
     editingBudgets,
@@ -42,6 +44,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     onThemeChange,
     addingTransaction,
     setAddingTransaction,
+    addStatus,
     merchantInputRef,
     merchant,
     setMerchant,
@@ -198,6 +201,9 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                 month={month}
                 categories={categories}
                 budgets={budgets}
+                transactionCount={(id) => transactionsForCategory(id).length}
+                onRenameCategory={onRenameCategory}
+                onDeleteCategory={onDeleteCategory}
                 onSaved={async () => {
                   await refreshBudgets()
                   setEditingBudgets(false)
@@ -299,6 +305,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
           the fields. */}
       <AddTransactionSheet
         open={addingTransaction}
+        status={addStatus}
         onClose={() => setAddingTransaction(false)}
         onSubmit={onSubmit}
         merchantInputRef={merchantInputRef}

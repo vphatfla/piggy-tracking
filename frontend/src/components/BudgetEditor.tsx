@@ -3,6 +3,7 @@ import { deleteBudget, getBudgets, putBudget, type Budget, type Category } from 
 import { cents } from '../format'
 import { addMonths, formatMonthLabel } from '../month'
 import { inputClasses } from '../ui'
+import { MinusCircleIcon } from './icons'
 import { Sheet } from './Sheet'
 
 /** A changed field with something to fall back to — the only case where
@@ -19,12 +20,17 @@ function hasChoice(categories: Category[], budgets: Budget[], drafts: Record<num
 
 /** The edit mode of the budgets section. Every category gets a field, including
  *  ones with no limit — this is the only place a budget is set, so a category
- *  missing from the list would be a limit you cannot add. */
+ *  missing from the list would be a limit you cannot add. It is also the only
+ *  place a category can be renamed or removed, for the same reason: these rows
+ *  are the app's one full list of them. */
 export function BudgetEditor({
   token,
   month,
   categories,
   budgets,
+  transactionCount,
+  onRenameCategory,
+  onDeleteCategory,
   onSaved,
   onCancel,
 }: {
@@ -32,6 +38,11 @@ export function BudgetEditor({
   month: string
   categories: Category[]
   budgets: Budget[]
+  /** How many of the viewed month's transactions are filed under a category —
+   *  context for the delete confirmation, which is not limited to this month. */
+  transactionCount: (categoryId: number) => number
+  onRenameCategory: (id: number, name: string) => Promise<void>
+  onDeleteCategory: (id: number) => Promise<void>
   onSaved: () => Promise<void>
   onCancel: () => void
 }) {
@@ -43,11 +54,18 @@ export function BudgetEditor({
       categories.map((c) => [c.id, budgets.find((b) => b.categoryId === c.id)?.amount ?? '']),
     ),
   )
+  // Names are drafts too, and follow the same rule as the amounts: an
+  // untouched one is never written.
+  const [names, setNames] = useState<Record<number, string>>(() =>
+    Object.fromEntries(categories.map((c) => [c.id, c.name])),
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Open only when at least one changed category has a previous value to
   // choose a treatment for — see hasChoice above.
   const [confirming, setConfirming] = useState(false)
+  // The category whose deletion is awaiting confirmation, if any.
+  const [deleting, setDeleting] = useState<Category | null>(null)
 
   async function save(mode: 'forward' | 'once') {
     setBusy(true)
@@ -66,6 +84,12 @@ export function BudgetEditor({
       // through leaves a partial save that the refetch below reports honestly
       // instead of a pile of parallel rejections.
       for (const c of categories) {
+        // Renames go first and never through the forward/once choice below: a
+        // name is not month-scoped, so there is nothing about it for a later
+        // month to inherit or not inherit.
+        const name = (names[c.id] ?? '').trim()
+        if (name !== '' && name !== c.name) await onRenameCategory(c.id, name)
+
         const current = budgets.find((b) => b.categoryId === c.id)
         const draft = (drafts[c.id] ?? '').trim()
 
@@ -109,20 +133,52 @@ export function BudgetEditor({
     else void save('forward')
   }
 
+  /** Applied immediately rather than batched into Save: it removes the row
+   *  being edited, so deferring it would mean carrying a tombstone through
+   *  every draft above for no gain. The editor stays open — deleting one
+   *  category is rarely the whole of what someone came here to do. */
+  async function confirmDelete(category: Category) {
+    setBusy(true)
+    setError(null)
+    setDeleting(null)
+    try {
+      // The leftover drafts for it are never read again — `categories` no
+      // longer contains the id, and ids are not reused.
+      await onDeleteCategory(category.id)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+    setBusy(false)
+  }
+
   return (
     <div className="mt-1 rounded-card bg-surface p-2 shadow-card">
       <ul>
         {categories.map((c) => (
-          <li key={c.id} className="flex items-center gap-3 px-2 py-1">
-            <label htmlFor={`budget-${c.id}`} className="min-w-0 flex-1 truncate text-body text-label">
-              {c.name}
-            </label>
+          <li key={c.id} className="flex items-center gap-1.5 px-1 py-1">
+            {/* Leading red minus, iOS list-editing's own affordance — a second
+                tap in a confirmation sheet is what actually deletes. */}
+            <button
+              type="button"
+              onClick={() => setDeleting(c)}
+              disabled={busy}
+              aria-label={`Delete ${c.name}`}
+              className="flex size-11 shrink-0 items-center justify-center rounded-full text-danger-text transition-opacity duration-200 ease-out hover:opacity-70 disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+            >
+              <MinusCircleIcon />
+            </button>
             <input
-              id={`budget-${c.id}`}
+              value={names[c.id] ?? ''}
+              onChange={(e) => setNames((n) => ({ ...n, [c.id]: e.target.value }))}
+              aria-label={`Name of ${c.name}`}
+              className={`${inputClasses} flex-1`}
+            />
+            <input
               value={drafts[c.id] ?? ''}
               onChange={(e) => setDrafts((d) => ({ ...d, [c.id]: e.target.value }))}
               placeholder="No limit"
               inputMode="decimal"
+              aria-label={`Limit for ${c.name}`}
               className={`${inputClasses} w-28 shrink-0 text-right tabular-nums`}
             />
           </li>
@@ -187,6 +243,38 @@ export function BudgetEditor({
           <button
             type="button"
             onClick={() => setConfirming(false)}
+            className="flex min-h-11 w-full items-center rounded-control px-3 text-body text-label-secondary transition-colors duration-150 ease-out active:bg-surface-raised"
+          >
+            Cancel
+          </button>
+        </div>
+      </Sheet>
+
+      {/* Destructive action sheet. It spells out what survives, because the
+          honest answer is "the money, but not the label" — and that the reach
+          of it is every month, not the one on screen. */}
+      <Sheet open={deleting !== null} onClose={() => setDeleting(null)} labelledBy="confirm-delete-title">
+        <div className="space-y-1 p-2 pb-1">
+          <h2 id="confirm-delete-title" className="px-3 pt-2 text-headline font-semibold text-label">
+            Delete {deleting?.name}?
+          </h2>
+          <p className="px-3 pb-1 text-subheadline text-label-secondary">
+            Its transactions keep their amounts and move to Uncategorised
+            {deleting && transactionCount(deleting.id) > 0
+              ? ` (${transactionCount(deleting.id)} in ${formatMonthLabel(month)})`
+              : ''}
+            . Its limits are removed in every month.
+          </p>
+          <button
+            type="button"
+            onClick={() => deleting && void confirmDelete(deleting)}
+            className="flex min-h-11 w-full items-center rounded-control px-3 text-body font-semibold text-danger-text transition-colors duration-150 ease-out active:bg-surface-raised"
+          >
+            Delete category
+          </button>
+          <button
+            type="button"
+            onClick={() => setDeleting(null)}
             className="flex min-h-11 w-full items-center rounded-control px-3 text-body text-label-secondary transition-colors duration-150 ease-out active:bg-surface-raised"
           >
             Cancel

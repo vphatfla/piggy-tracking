@@ -73,6 +73,8 @@ docker compose exec backend npm run seed
 | DELETE | `/api/transactions/:id`  | bearer | `204`. Hard delete, no undo                      |
 | GET    | `/api/categories`        | bearer | Your categories, A–Z                             |
 | POST   | `/api/categories`        | bearer | `{ name }` — find-or-create; `200` if it existed, `201` if made |
+| PATCH  | `/api/categories/:id`    | bearer | `{ name }` — rename; `409` if you already have that name |
+| DELETE | `/api/categories/:id`    | bearer | `204`. Its transactions survive as uncategorised; its budgets go |
 | GET    | `/api/budgets`           | bearer | `?month=YYYY-MM` (required) — the limit *in effect* per category |
 | GET    | `/api/budgets/exists`    | bearer | `{ exists: boolean }` — has this user ever set a budget, at all |
 | PUT    | `/api/budgets`           | bearer | `{ categoryId, month, amount }` — upserts one month's limit |
