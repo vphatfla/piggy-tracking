@@ -249,6 +249,26 @@ resource "aws_instance" "backend" {
     Environment = var.environment
     ManagedBy   = "Terraform"
   })
+
+  # This box is a pet, not cattle: it carries the Postgres data volume, and a
+  # replacement takes the database with it (the volume's availability_zone
+  # follows this instance, so rebuilding the instance makes the volume's AZ
+  # "known after apply" and forces *it* to be replaced too — an empty disk).
+  #
+  # `data.aws_ami.al2023_arm64` is `most_recent = true`, so every AL2023
+  # release AWS publishes changes `ami` and forces replacement. That is fine
+  # for the initial create and wrong forever after: the AMI only supplies the
+  # starting image, and nothing the app needs is in it — user_data stops at
+  # "docker installed, volume mounted". Left unignored it means an unrelated
+  # change under terraform/ merges to main, terraform-deploy.yml applies it
+  # unattended, and production's database is destroyed by an upstream image
+  # release nobody asked for. Caught exactly that way, one merge short.
+  #
+  # Upgrading the base image is therefore a deliberate act, not a side effect:
+  # lift this ignore, detach the data volume, rebuild, reattach.
+  lifecycle {
+    ignore_changes = [ami]
+  }
 }
 
 # Dedicated, durable volume for Postgres's data — see ../docker-compose.prod.yml,
@@ -266,6 +286,18 @@ resource "aws_ebs_volume" "data" {
     ManagedBy   = "Terraform"
     Purpose     = "PostgresData"
   })
+
+  # The backstop to the lifecycle rule on aws_instance.backend above. That one
+  # removes the known cause of a replacement; this one makes any *future*
+  # cause fail loudly at plan time instead of quietly deleting production data
+  # during an unattended apply. There is no undo for this volume — no
+  # snapshot schedule, and the database is the only copy.
+  #
+  # It blocks `terraform destroy` too. That is the point; a real teardown
+  # means deleting this line first, on purpose.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_volume_attachment" "data" {

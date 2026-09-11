@@ -92,13 +92,21 @@ needs revisiting.
 send-command`, not SSH) — it fetches secrets from SSM Parameter Store
 (`/piggy-tracking/prod/*`, never through GitHub Actions or the SSM command
 payload itself) and does `docker compose pull && up -d --no-build`. The
-frontend syncs to the S3 bucket with per-path cache headers (hashed assets
-immutable, `sw.js`/manifest/`registerSW.js` no-cache — or a PWA update never
-reaches installed clients). GitHub Actions workflows for all of this exist
-in `.github/workflows/`, but the **first deploy was done manually**,
-running the identical commands the workflows would — the repo secrets
-(`AWS_ROLE_ARN` etc., listed in `terraform/README.md`) aren't wired up in
-GitHub yet.
+frontend syncs to the S3 bucket with per-path cache headers — **immutable
+only for content-hashed filenames** (`assets/*`, `workbox-*.js`), `no-cache`
+for everything else including `index.html` — then **invalidates CloudFront and
+waits**, because a deploy that reaches S3 has not reached production. Both
+halves are load-bearing and both have failed in production; see
+`frontend/CLAUDE.md` § Cache headers.
+
+The GitHub Actions workflows in `.github/workflows/` run all of this on merge
+to main, path-filtered. That includes **`terraform-deploy.yml`, which applies
+unattended** — so a change under `terraform/` is applied by merging it, with
+nobody reading the plan. Two `lifecycle` blocks in `main.tf` are what make
+that survivable: `ignore_changes = [ami]` on the instance and
+`prevent_destroy = true` on the Postgres volume. Without them an upstream
+AL2023 release replaces the instance, the volume follows its AZ, and the
+database is gone. Read `terraform/README.md` before removing either.
 
 ## The product shape
 

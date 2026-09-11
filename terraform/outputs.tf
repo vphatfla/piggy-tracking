@@ -40,3 +40,16 @@ output "data_volume_id" {
   description = "EBS volume id holding Postgres's data"
   value       = aws_ebs_volume.data.id
 }
+
+# ========================================
+# CLOUDFRONT (read from oppy-marser's state)
+# ========================================
+
+# Not a resource this stack owns — oppy-marser's distribution serves both apps
+# (see README.md). Surfaced here so the AWS_CLOUDFRONT_DISTRIBUTION_ID repo
+# secret is filled by `terraform output -raw` like every other id in the
+# secrets table, rather than by copying one out of the console.
+output "cloudfront_distribution_id" {
+  description = "ID of the CloudFront distribution serving this app — owned by oppy-marser, invalidated by frontend-deploy.yml"
+  value       = data.terraform_remote_state.oppy_marser.outputs.cloudfront_distribution_id
+}
