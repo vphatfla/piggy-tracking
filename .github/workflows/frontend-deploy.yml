@@ -112,6 +112,14 @@ jobs:
         env:
           DISTRIBUTION_ID: ${{ secrets.AWS_CLOUDFRONT_DISTRIBUTION_ID }}
         run: |
+          # An unset secret otherwise reaches the API as --distribution-id ""
+          # and comes back as a bare "InvalidAction", which says nothing about
+          # the actual cause. Fail here instead, naming the secret.
+          if [ -z "$DISTRIBUTION_ID" ]; then
+            echo "::error::AWS_CLOUDFRONT_DISTRIBUTION_ID is not set. The build is already in S3, but the edge will keep serving the previous one until this secret exists and the workflow is re-run. Get the value with: terraform -chdir=terraform output -raw cloudfront_distribution_id"
+            exit 1
+          fi
+
           invalidation_id=$(aws cloudfront create-invalidation \
             --distribution-id "$DISTRIBUTION_ID" \
             --paths '/app/piggy-tracking/*' \
