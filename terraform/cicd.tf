@@ -260,6 +260,23 @@ data "aws_iam_policy_document" "github_actions" {
   # groups, ECR repo/policy. Broad by Terraform-CI necessity (it must be
   # able to create/update/delete what it manages); scoped to actions rather
   # than left fully wildcard.
+  #
+  # The Get*/List*/Describe* entries are not optional extras: **Terraform
+  # refreshes every managed resource before it can plan anything**, and the
+  # AWS provider reads far more per resource than the create path writes. One
+  # bucket costs a dozen sub-resource reads (ACL, CORS, logging, lifecycle,
+  # replication, website, …) whether or not this config declares them. Missing
+  # any single one fails the whole run with AccessDenied at refresh, before a
+  # diff is ever computed — which is what happened the first time this
+  # workflow actually ran: s3:GetBucketAcl, ecr:ListTagsForResource and
+  # iam:ListOpenIDConnectProviders were all absent, and CI could not plan.
+  #
+  # Note the bootstrapping trap this creates. The role holds iam:PutRolePolicy,
+  # so in principle it can widen its own policy — but it can never *reach* that
+  # apply, because the refresh that precedes it is what fails. Recovering means
+  # applying `-target=aws_iam_role_policy.github_actions` from credentials that
+  # already have the access, out of band. Adding a resource type here is the
+  # moment to add its reads too, in the same change.
   statement {
     sid = "ManageInfrastructure"
     actions = [
@@ -279,6 +296,17 @@ data "aws_iam_policy_document" "github_actions" {
       "s3:PutBucketPublicAccessBlock", "s3:GetBucketPublicAccessBlock",
       "s3:PutBucketOwnershipControls", "s3:GetBucketOwnershipControls",
       "s3:PutBucketTagging", "s3:GetBucketTagging",
+      # Refresh-time reads. The provider issues all of these per bucket on
+      # every plan, regardless of what this config sets.
+      "s3:GetBucketAcl", "s3:GetBucketCORS", "s3:GetBucketLogging",
+      "s3:GetBucketNotification", "s3:GetBucketObjectLockConfiguration",
+      "s3:GetBucketRequestPayment", "s3:GetBucketWebsite", "s3:GetBucketLocation",
+      "s3:GetAccelerateConfiguration", "s3:GetLifecycleConfiguration",
+      "s3:GetReplicationConfiguration",
+      "ecr:ListTagsForResource", "ecr:GetRepositoryPolicy",
+      "iam:ListOpenIDConnectProviders", "iam:GetOpenIDConnectProvider",
+      "iam:ListInstanceProfilesForRole", "iam:ListRoleTags",
+      "iam:ListPolicies", "iam:GetPolicy", "iam:GetPolicyVersion",
     ]
     resources = ["*"]
   }
