@@ -100,13 +100,25 @@ halves are load-bearing and both have failed in production; see
 `frontend/CLAUDE.md` § Cache headers.
 
 The GitHub Actions workflows in `.github/workflows/` run all of this on merge
-to main, path-filtered. That includes **`terraform-deploy.yml`, which applies
-unattended** — so a change under `terraform/` is applied by merging it, with
-nobody reading the plan. Two `lifecycle` blocks in `main.tf` are what make
-that survivable: `ignore_changes = [ami]` on the instance and
-`prevent_destroy = true` on the Postgres volume. Without them an upstream
-AL2023 release replaces the instance, the volume follows its AZ, and the
-database is gone. Read `terraform/README.md` before removing either.
+to main, path-filtered. Three things about that are load-bearing, and each one
+has already failed once — `terraform/README.md` has the full post-mortems:
+
+- **`terraform-deploy.yml` applies unattended.** A change under `terraform/`
+  is applied by merging it, with nobody reading the plan. Two `lifecycle`
+  blocks in `main.tf` make that survivable: `ignore_changes = [ami]` on the
+  instance and `prevent_destroy = true` on the Postgres volume. Without them
+  an upstream AL2023 release replaces the instance, the volume follows its AZ,
+  and the database is gone. **This box carries live production data and must
+  not be replaced** — don't remove either block without reading why.
+- **CI cannot fix the CI role.** Terraform refreshes before it plans, so a
+  role missing a *read* fails before reaching the apply that would grant it —
+  including an apply that widens the role itself. Adding a resource type here
+  means adding its refresh-time reads in the same change; recovering from
+  having not done so is a targeted apply from admin credentials.
+- **The path filters match docs.** `frontend/CLAUDE.md` is under `frontend/**`,
+  so editing this repo's own guides triggers a real deploy. That is how the
+  frontend workflow first ran — worth knowing before assuming a docs commit is
+  inert.
 
 ## The product shape
 

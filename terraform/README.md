@@ -6,6 +6,16 @@
 `piggy-tracking-backend` — `terraform output` is the source of truth if any
 of these are ever recreated.
 
+**That instance holds the only copy of the production database.** There is no
+snapshot schedule. It must not be replaced — see the `lifecycle` blocks in
+`main.tf` and the post-mortem below.
+
+**Outstanding**: `terraform-deploy.yml` cannot plan until
+`aws_iam_role_policy.github_actions` is applied once from admin credentials
+(the deadlock is explained below), and `AWS_CLOUDFRONT_DISTRIBUTION_ID` still
+has to be added as a repo secret. Neither blocks the running site; both block
+CI. Delete this paragraph once they are done.
+
 Provisions piggy-tracking's production hosting: an S3 bucket for the built
 frontend, and an EC2 instance (+ dedicated EBS volume for Postgres) running
 the backend via the existing `docker-compose.yml` + `docker-compose.prod.yml`.
@@ -106,6 +116,32 @@ if this ever needs touching again:
   steps: hashed → immutable, unhashed → `no-cache`, invalidate and wait, then
   prune. **Cache headers follow the filename, not a list of exceptions**, and
   the `--delete` happens after the switchover, never before it.
+- **The CI role could apply but could not refresh — and could not fix
+  itself.** The first time `terraform-deploy.yml` actually ran, it failed
+  before computing any diff: AccessDenied on `s3:GetBucketAcl`,
+  `ecr:ListTagsForResource`, `iam:ListOpenIDConnectProviders`. The role had
+  been built from the actions *apply* needs, and Terraform **refreshes every
+  managed resource before it can plan**, with the AWS provider reading far
+  more per resource than the create path writes — one bucket costs a dozen
+  sub-resource reads (ACL, CORS, logging, lifecycle, replication, website, …)
+  whether or not this config declares them. It worked by hand under admin
+  credentials and broke the moment CI owned it.
+
+  **The deadlock is the part worth remembering.** The role holds
+  `iam:PutRolePolicy`, so it can widen its own policy — but it can never
+  *reach* that apply, because the refresh that precedes it is the thing
+  failing. Re-running CI produces the identical error forever. Recovery is one
+  targeted apply from credentials that already have the access:
+
+  ```bash
+  terraform apply -target=aws_iam_role_policy.github_actions
+  ```
+
+  `-target` keeps it to the role policy alone — no instance, no volume, no
+  traffic. **Adding a resource type to this stack means adding its
+  refresh-time reads in the same change**, or the next CI run inherits this
+  same deadlock.
+
 - **`terraform apply` runs unattended on merge, and the plan was one AMI
   release away from deleting the database.** `data "aws_ami"` is
   `most_recent = true`, so a new AL2023 image forced `aws_instance.backend` to
@@ -133,10 +169,11 @@ Two things need to exist *before* `terraform apply` on `cicd.tf` and before
 CI/CD can run at all. Neither is Terraform's job — secrets shouldn't be
 provisioned by the same pipeline that reads them, and the GitHub OIDC
 provider is an account-wide singleton oppy-marser's own CD already depends
-on existing. **All three steps are done** — the table in step 3 is the
-record of what exists, and anything added to it (as
-`AWS_CLOUDFRONT_DISTRIBUTION_ID` was) has to be created by hand before the
-workflow that reads it merges.
+on existing. Steps 1-2 are done. Step 3's table is the record of which repo
+secrets exist, and **anything added to that table has to be created by hand
+before the workflow reading it merges** — `AWS_CLOUDFRONT_DISTRIBUTION_ID` is
+the standing example: the invalidation step shipped first, so the frontend
+deploy failed on an empty `--distribution-id` until the secret was added.
 
 1. **Confirm the account's GitHub OIDC provider exists**:
    ```bash
