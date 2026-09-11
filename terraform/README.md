@@ -14,9 +14,9 @@ the backend via the existing `docker-compose.yml` + `docker-compose.prod.yml`.
 mounted" — it never deploys the app. That's `.github/workflows/backend-deploy.yml`
 + `.github/workflows/frontend-deploy.yml` (and `deploy/remote-deploy.sh`,
 which is what the backend workflow tells the box to run) — see the repo
-root's `.github/workflows/` and `deploy/`. **The first deploy was done by
-hand**, running the identical commands the workflows run — the GitHub repo
-secrets those workflows need aren't wired up yet (see step 3 below).
+root's `.github/workflows/` and `deploy/`. The first deploy was done by
+hand, running the identical commands the workflows run; **the repo secrets
+are wired up now and CI/CD deploys on merge to main** (see step 3 below).
 
 `cicd.tf` (alongside this file) is what those workflows authenticate as and
 run against: an ECR repository for the backend image, the extra IAM
@@ -94,6 +94,30 @@ if this ever needs touching again:
   behavior/origin. Fixed with a second, exact-match `ordered_cache_behavior`
   for `/app/piggy-tracking` in oppy-marser's `main.tf`, identical settings
   otherwise.
+- **A deploy can reach S3 and still not reach production.** The frontend
+  workflow shipped `index.html` under
+  `Cache-Control: public,max-age=31536000,immutable`, which is right for the
+  content-hashed bundles and wrong for the one unhashed file that names them.
+  CloudFront held a three-day-old copy for the full year the header claimed,
+  and because the sync also ran `--delete`, the bundle that stale HTML pointed
+  at was gone from the bucket — the live page served an HTML shell whose own
+  JavaScript 403'd. Found by comparing `aws s3api head-object` (new ETag)
+  against `curl -sI` on the live URL (old ETag, `age: 267749`). Now four
+  steps: hashed → immutable, unhashed → `no-cache`, invalidate and wait, then
+  prune. **Cache headers follow the filename, not a list of exceptions**, and
+  the `--delete` happens after the switchover, never before it.
+- **`terraform apply` runs unattended on merge, and the plan was one AMI
+  release away from deleting the database.** `data "aws_ami"` is
+  `most_recent = true`, so a new AL2023 image forced `aws_instance.backend` to
+  be replaced; `aws_ebs_volume.data` takes its `availability_zone` from that
+  instance, so the Postgres volume was slated for replacement too — an empty
+  disk, no snapshot, no undo. Nothing had changed in `terraform/` since, so it
+  sat armed and invisible; the next PR touching this directory for any reason
+  would have fired it. Fixed with two `lifecycle` blocks in `main.tf`:
+  `ignore_changes = [ami]` on the instance (the AMI supplies the starting
+  image and nothing else — upgrading it is now a deliberate detach/rebuild/
+  reattach), and `prevent_destroy = true` on the volume, so any future cause
+  fails at plan time instead of succeeding quietly.
 
 Also found, **not fixed here, not this repo's to fix**: oppy-marser's own
 pre-existing `default_cache_behavior` has a mislabeled policy ID — the hex
@@ -109,8 +133,10 @@ Two things need to exist *before* `terraform apply` on `cicd.tf` and before
 CI/CD can run at all. Neither is Terraform's job — secrets shouldn't be
 provisioned by the same pipeline that reads them, and the GitHub OIDC
 provider is an account-wide singleton oppy-marser's own CD already depends
-on existing. **Steps 1-2 are done**; step 3 (GitHub repo secrets) isn't —
-the first deploy was manual, see above.
+on existing. **All three steps are done** — the table in step 3 is the
+record of what exists, and anything added to it (as
+`AWS_CLOUDFRONT_DISTRIBUTION_ID` was) has to be created by hand before the
+workflow that reads it merges.
 
 1. **Confirm the account's GitHub OIDC provider exists**:
    ```bash
@@ -146,6 +172,7 @@ the first deploy was manual, see above.
    | `AWS_S3_FRONTEND_BUCKET` | `terraform output -raw s3_bucket_name` |
    | `AWS_ECR_BACKEND_REPOSITORY` | repo *name* only, not the full URL — `terraform output -raw ecr_repository_url` and take everything after the last `/` (e.g. `piggy-tracking-backend`) |
    | `AWS_BACKEND_INSTANCE_ID` | `terraform output -raw backend_instance_id` |
+   | `AWS_CLOUDFRONT_DISTRIBUTION_ID` | `terraform output -raw cloudfront_distribution_id` — oppy-marser's distribution, which `frontend-deploy.yml` invalidates after every sync |
    | `VITE_GOOGLE_CLIENT_ID` | same OAuth client id as the backend's `GOOGLE_CLIENT_ID` SSM parameter above — the backend rejects ID tokens minted for any other audience |
 
    Optionally, a repo **variable** (not secret) `AWS_REGION` if it should

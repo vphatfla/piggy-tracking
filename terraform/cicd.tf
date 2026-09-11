@@ -226,6 +226,20 @@ data "aws_iam_policy_document" "github_actions" {
     resources = ["*"]
   }
 
+  # Invalidate the frontend at the edge after a deploy. Scoped to the one
+  # distribution, whose ARN main.tf already reads from oppy-marser's state for
+  # the bucket policy — this stays a read of their outputs plus a cache
+  # operation on the distribution, never a write to their Terraform state.
+  #
+  # Without this the frontend workflow can only ever reach S3: CloudFront goes
+  # on serving whatever it cached until the TTL expires, which is how a merged
+  # change sat invisible in production for three days.
+  statement {
+    sid       = "InvalidateFrontendCache"
+    actions   = ["cloudfront:CreateInvalidation", "cloudfront:GetInvalidation"]
+    resources = [data.terraform_remote_state.oppy_marser.outputs.cloudfront_distribution_arn]
+  }
+
   # Trigger + observe the remote deploy script.
   statement {
     sid     = "SsmDeploy"

@@ -243,11 +243,40 @@ Production section for the URL.
 - Dev builds emit `dev-dist/`. It is ignored by the **root** `.gitignore`, not
   this directory's — don't be surprised when it appears.
 - A stale service worker is the usual reason a change "doesn't show up" in dev.
-  Hard-reload or unregister it before debugging further. In production, the
-  `no-cache` header on `sw.js`/the manifest/`registerSW.js` (set at sync time
-  by `frontend-deploy.yml`) is what keeps this from becoming a real problem
-  for installed clients — don't relax that to a long TTL "for performance,"
-  it's the opposite of the win it looks like.
+  Hard-reload or unregister it before debugging further.
+
+### Cache headers: the rule is the filename
+
+`frontend-deploy.yml` sets `Cache-Control` per path at upload time, and the
+rule it follows is **is this filename content-hashed?** — not a list of
+exceptions:
+
+- `assets/*` and `workbox-*.js` carry a hash, so their content can never
+  change under a given name: `public,max-age=31536000,immutable`.
+- **Everything else in `dist/` keeps its name across builds** — `index.html`,
+  `sw.js`, `manifest.webmanifest`, `registerSW.js`, the icons — so all of it
+  is `no-cache`, meaning "revalidate before reusing", not "never cached".
+
+`index.html` is the one that bites, and it did: it was on the immutable side
+for a while because the workflow listed exceptions instead of stating the
+rule. It is the file that names the hashed bundles, so a frozen copy of it
+pins the entire app to an old build — and since the sync prunes superseded
+assets, the bundles that copy asks for eventually stop existing and the live
+page 403s on its own JavaScript. Adding a new unhashed file to the build needs
+no change to the workflow; it lands on the `no-cache` side by default, which
+is the safe direction to be wrong in.
+
+Don't relax any of the `no-cache` paths to a long TTL "for performance" — for
+`sw.js` in particular that is how a PWA update stops reaching installed
+clients, and it is the opposite of the win it looks like.
+
+**`no-cache` is not enough on its own.** The edge keeps serving what it has
+until something tells it to re-ask, so the workflow also invalidates
+`/app/piggy-tracking/*` on every deploy and waits for it to complete. A deploy
+that reaches S3 has not reached production. If a change is live in the bucket
+but not on the site, check `curl -sI` against the live URL for an `age:` and a
+`last-modified:` that disagree with `aws s3api head-object` — that is this
+failure, and it needs an invalidation, not another deploy.
 
 ## Backend calls
 

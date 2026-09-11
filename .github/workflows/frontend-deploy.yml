@@ -2,9 +2,10 @@ name: Frontend Build and Deploy
 
 # Same shape as oppy-marser's own frontend-deploy.yml (push to main,
 # path-filtered, workflow_dispatch, OIDC) — see
-# ~/workplace/oppy-marser/.github/workflows/frontend-deploy.yml. The one
-# real addition: per-path Cache-Control at sync time, which their
-# service-worker-less static site doesn't need — see the sync step below.
+# ~/workplace/oppy-marser/.github/workflows/frontend-deploy.yml. The real
+# additions here: per-path Cache-Control at upload time and a CloudFront
+# invalidation, neither of which their service-worker-less static site
+# needs — see the upload steps below.
 on:
   workflow_dispatch:
   push:
@@ -55,7 +56,16 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
 
-      - name: Deploy to S3
+      # Two syncs, split by whether a filename changes with its content —
+      # not by a list of exceptions. That list is what broke a deploy: it
+      # named sw.js/manifest/registerSW.js and quietly left index.html on the
+      # immutable side, where CloudFront then held a three-day-old copy of it
+      # for the full year the header claimed. `assets/*` and `workbox-*.js`
+      # carry a content hash in the filename; every other file in dist/ keeps
+      # its name across builds and must revalidate. Adding an unhashed file to
+      # the build needs no change here — it lands on the no-cache side by
+      # default, which is the safe direction to be wrong in.
+      - name: Upload hashed assets (immutable)
         env:
           S3_BUCKET: ${{ secrets.AWS_S3_FRONTEND_BUCKET }}
           # oppy-marser's new S3 origin has no origin_path, so CloudFront
@@ -63,22 +73,66 @@ jobs:
           # to the bucket — objects have to live at this same key prefix,
           # not bucket root, or every request 404s at the origin.
           DEST_PREFIX: app/piggy-tracking
+        # No --delete: the old bundles have to outlive this step. Until the
+        # invalidation below lands, the edge is still serving the previous
+        # index.html, and that HTML points at them. Deleting here is what
+        # turned a stale page into a broken one — a shell whose own
+        # JavaScript 403s. They are pruned after the switchover instead.
         run: |
-          # Hashed assets (assets/*.js, assets/*.css) are safe to cache
-          # immutably forever — a content change always gets a new filename.
-          # sw.js, the manifest, and registerSW.js are NOT hashed and must
-          # stay no-cache, or a PWA update never reaches installed clients —
-          # excluded from the long-TTL sync and pushed separately below.
+          aws s3 sync ./dist "s3://${S3_BUCKET}/${DEST_PREFIX}" \
+            --cache-control "public,max-age=31536000,immutable" \
+            --exclude "*" \
+            --include "assets/*" \
+            --include "workbox-*.js"
+
+      # index.html above all: it is the file that names the hashed bundles, so
+      # a cached copy of it pins the whole app to an old build. sw.js and the
+      # manifest for the same reason on the PWA side — a long TTL there means
+      # an update never reaches installed clients.
+      - name: Upload unhashed files (no-cache)
+        env:
+          S3_BUCKET: ${{ secrets.AWS_S3_FRONTEND_BUCKET }}
+          DEST_PREFIX: app/piggy-tracking
+        run: |
+          aws s3 sync ./dist "s3://${S3_BUCKET}/${DEST_PREFIX}" \
+            --cache-control "no-cache" \
+            --exclude "assets/*" \
+            --exclude "workbox-*.js"
+
+      # no-cache means "revalidate before reusing", not "never cached" — the
+      # edge still holds the old object until something tells it to re-ask.
+      # Without this step a deploy reaches S3 and stops there, which is
+      # exactly the failure this workflow already shipped once.
+      #
+      # The wildcard counts as a single path against the 1,000/month free
+      # tier, so this is free at any deploy rate this repo will see. Waiting
+      # for completion rather than fire-and-forget matches backend-deploy.yml
+      # polling its SSM command: the API accepting it is not proof it worked.
+      - name: Invalidate CloudFront
+        env:
+          DISTRIBUTION_ID: ${{ secrets.AWS_CLOUDFRONT_DISTRIBUTION_ID }}
+        run: |
+          invalidation_id=$(aws cloudfront create-invalidation \
+            --distribution-id "$DISTRIBUTION_ID" \
+            --paths '/app/piggy-tracking/*' \
+            --query 'Invalidation.Id' --output text)
+          echo "Invalidation $invalidation_id submitted; waiting…"
+          aws cloudfront wait invalidation-completed \
+            --distribution-id "$DISTRIBUTION_ID" \
+            --id "$invalidation_id"
+
+      # Only now, with the new index.html live at the edge, is it safe to drop
+      # the bundles the old one referenced. Same filters as the first sync, so
+      # nothing is re-uploaded — those objects were written minutes ago and
+      # `sync` compares size and mtime.
+      - name: Prune superseded assets
+        env:
+          S3_BUCKET: ${{ secrets.AWS_S3_FRONTEND_BUCKET }}
+          DEST_PREFIX: app/piggy-tracking
+        run: |
           aws s3 sync ./dist "s3://${S3_BUCKET}/${DEST_PREFIX}" \
             --delete \
             --cache-control "public,max-age=31536000,immutable" \
-            --exclude "sw.js" \
-            --exclude "manifest.webmanifest" \
-            --exclude "registerSW.js"
-
-          aws s3 cp ./dist/sw.js "s3://${S3_BUCKET}/${DEST_PREFIX}/sw.js" \
-            --cache-control "no-cache"
-          aws s3 cp ./dist/manifest.webmanifest "s3://${S3_BUCKET}/${DEST_PREFIX}/manifest.webmanifest" \
-            --cache-control "no-cache"
-          aws s3 cp ./dist/registerSW.js "s3://${S3_BUCKET}/${DEST_PREFIX}/registerSW.js" \
-            --cache-control "no-cache"
+            --exclude "*" \
+            --include "assets/*" \
+            --include "workbox-*.js"
