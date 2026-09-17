@@ -3,16 +3,20 @@ import {
   createCategory,
   createTransaction,
   deleteCategory,
+  deleteShare,
   getBudgets,
   getBudgetsExist,
   getCategories,
+  getMyShare,
   getReceipts,
   getTransactions,
   updateCategory,
+  updateShareBudgetOwner,
   type Budget,
   type Category,
   type Receipt,
   type Session,
+  type Share,
   type Transaction,
 } from '../api'
 import { spendByCategory } from '../budgetCalc'
@@ -50,6 +54,9 @@ export function useDashboard(session: Session) {
   const [expandedCategoryId, setExpandedCategoryId] = useState<number | 'uncategorised' | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
   const [budgets, setBudgets] = useState<Budget[]>([])
+  // null means "no active share" — same sentinel the API itself returns, so
+  // there is no separate "loading" state to reconcile with it.
+  const [share, setShare] = useState<Share | null>(null)
   const [editingBudgets, setEditingBudgets] = useState(false)
   // Whether this user has ever set a budget, at all — not whether the viewed
   // month has one, which is a normal, unrelated empty state. Fetched once
@@ -161,6 +168,33 @@ export function useDashboard(session: Session) {
       .then((r) => setHasAnyBudgets(r.exists))
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
   }, [accessToken])
+
+  // Same shape again: sharing status doesn't change when the month does.
+  useEffect(() => {
+    getMyShare(accessToken)
+      .then(setShare)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+  }, [accessToken])
+
+  /** Which categories/budgets are canonical actually changes here, unlike an
+   *  ordinary transaction write — so, unlike the no-refetch-after-a-write rule
+   *  elsewhere in this file, categories and budgets genuinely need re-fetching. */
+  async function onChangeBudgetOwner(budgetOwnerUserId: number) {
+    if (!share) return
+    setShare(await updateShareBudgetOwner(accessToken, share.id, budgetOwnerUserId))
+    setCategories(await getCategories(accessToken))
+    setBudgets(await getBudgets(accessToken, month))
+  }
+
+  /** Ends the share. Non-destructive — see deleteShare's own comment — but
+   *  the visible scope shrinks back to solo, so transactions/categories/
+   *  budgets are re-fetched rather than patched in place. */
+  async function onLeaveShare() {
+    if (!share) return
+    await deleteShare(accessToken, share.id)
+    setShare(null)
+    await Promise.all([refresh(), getCategories(accessToken).then(setCategories)])
+  }
 
   // Returns the row so the caller decides what to select — the add form and an
   // edit panel both create categories, but only one of them owns the add form's
@@ -373,6 +407,9 @@ export function useDashboard(session: Session) {
     setEditingBudgets,
     onToggleBudgetEditor,
     refreshBudgets,
+    share,
+    onChangeBudgetOwner,
+    onLeaveShare,
     themePref,
     onThemeChange: (pref: ThemePreference) => {
       applyThemePreference(pref)

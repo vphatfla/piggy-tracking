@@ -8,6 +8,7 @@ import { authRouter } from './routes/auth.ts'
 import { budgetsRouter } from './routes/budgets.ts'
 import { categoriesRouter } from './routes/categories.ts'
 import { receiptsRouter } from './routes/receipts.ts'
+import { sharesRouter } from './routes/shares.ts'
 import { transactionsRouter } from './routes/transactions.ts'
 import { usersRouter } from './routes/users.ts'
 
@@ -33,6 +34,7 @@ export function createApp() {
   app.use('/api/categories', categoriesRouter)
   app.use('/api/budgets', budgetsRouter)
   app.use('/api/transactions', transactionsRouter)
+  app.use('/api/shares', sharesRouter)
 
   app.use((_req, res) => {
     res.status(404).json({ error: 'Not found' })

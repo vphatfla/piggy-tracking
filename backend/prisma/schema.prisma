@@ -28,6 +28,10 @@ model User {
   categories    Category[]
   budgets       Budget[]
   refreshTokens RefreshToken[]
+
+  shareInitiations       Share[] @relation("ShareInitiator")
+  sharePartnerships      Share[] @relation("SharePartner")
+  shareBudgetOwnerships  Share[] @relation("ShareBudgetOwner")
 }
 
 /// A scanned/uploaded receipt. Deleting the owning user removes their receipts.
@@ -128,6 +132,39 @@ model Budget {
 
   @@unique([userId, categoryId, month])
   @@index([userId, month])
+}
+
+/// Pairwise sharing between two household members. Its existence *is* the
+/// active state — there is no pending/accepted status, since the invite
+/// mechanism is deliberately not built yet: a row means the share is live.
+/// Sharing changes what a query returns (which transactions are visible,
+/// whose categories/budgets are canonical), never who owns a row — no data
+/// is migrated when a Share is created or revoked.
+///
+/// `budgetOwnerUserId` names whichever member's Category/Budget rows are
+/// canonical for both users. It defaults to `initiatorId` at creation, but
+/// either member may change it afterward — the asymmetry between the two
+/// users lives only in that default, nowhere else.
+///
+/// A user may have at most one active (`revokedAt IS NULL`) share; that is
+/// an application-level check (see `src/sharing.ts`), not something a plain
+/// unique index can express across these two columns.
+model Share {
+  id                Int       @id @default(autoincrement())
+  initiatorId       Int
+  partnerId         Int
+  budgetOwnerUserId Int
+  createdAt         DateTime  @default(now())
+  /// Non-null means this share has ended. Soft-revoked rather than deleted,
+  /// same pattern as RefreshToken, so past sharing history isn't lost.
+  revokedAt         DateTime?
+
+  initiator   User @relation("ShareInitiator", fields: [initiatorId], references: [id], onDelete: Cascade)
+  partner     User @relation("SharePartner", fields: [partnerId], references: [id], onDelete: Cascade)
+  budgetOwner User @relation("ShareBudgetOwner", fields: [budgetOwnerUserId], references: [id], onDelete: Cascade)
+
+  @@index([initiatorId])
+  @@index([partnerId])
 }
 
 /// A refresh-token handle for one browser session. The raw token is only ever

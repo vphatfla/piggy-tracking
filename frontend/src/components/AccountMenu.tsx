@@ -8,19 +8,24 @@ const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
   { value: 'dark', label: 'Dark' },
 ]
 
-/** Top-right account menu: identity, appearance, sign-out. Replaces the old
- *  bare name-text-plus-"Sign out"-button header. There is no router in this
- *  app, so "account setting" here is deliberately just the read-only name/
- *  email header below — not a screen to navigate to. */
+/** Top-right account menu: identity, appearance, share, sign-out. Replaces
+ *  the old bare name-text-plus-"Sign out"-button header. There is no router
+ *  in this app, so "account setting" here is deliberately just the read-only
+ *  name/email header below — not a screen to navigate to. "Share" is the one
+ *  exception: it opens `SharePage`, a full-screen `Sheet` rather than a route,
+ *  since a household-sharing screen has too much of its own state to fit in
+ *  this popover the way appearance does. */
 export function AccountMenu({
   user,
   themePref,
   onThemeChange,
+  onOpenShare,
   onLogout,
 }: {
   user: UserProfile
   themePref: ThemePreference
   onThemeChange: (pref: ThemePreference) => void
+  onOpenShare: () => void
   onLogout: () => void
 }) {
   const { open, setOpen, containerRef, triggerRef } = usePopoverMenu<HTMLDivElement, HTMLButtonElement>()
@@ -72,6 +77,20 @@ export function AccountMenu({
               {themePref === opt.value ? <span className="text-accent-text"><CheckIcon /></span> : null}
             </button>
           ))}
+
+          <div className="mx-2 my-1 border-t border-separator" />
+
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false)
+              onOpenShare()
+            }}
+            className="flex min-h-11 w-full items-center px-4 text-body text-label transition-colors duration-200 ease-out hover:bg-surface"
+          >
+            Share
+          </button>
 
           <div className="mx-2 my-1 border-t border-separator" />
 

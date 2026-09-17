@@ -18,6 +18,7 @@ export function TransactionRow({
   onAddCategory,
   onSaved,
   onDeleted,
+  showOwner,
 }: {
   transaction: Transaction
   index: number
@@ -29,6 +30,11 @@ export function TransactionRow({
   onAddCategory: (name: string) => Promise<Category>
   onSaved: (updated: Transaction) => void
   onDeleted: (id: number) => void
+  /** Whether to render `ownerName` at all — only meaningful (and only passed
+   *  as true) while an active share exists. `ownerName` is always present on
+   *  the transaction, but showing "You" on every row of an unshared account
+   *  would be noise with nothing to distinguish it from. */
+  showOwner: boolean
 }) {
   const panelId = `txn-${transaction.id}-editor`
 
@@ -54,6 +60,7 @@ export function TransactionRow({
           <p className="mt-0.5 truncate text-subheadline text-label-secondary">
             {formatDate(transaction.date)} · {transaction.category ?? 'Uncategorised'}
             {receipt && ' · Receipt'}
+            {showOwner && ` · ${transaction.ownerName}`}
           </p>
         </div>
         <span className="shrink-0 text-headline tabular-nums text-label">

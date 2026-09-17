@@ -62,7 +62,22 @@ export type Transaction = {
    *  was deleted — the API requires one on create, so this is never "the user
    *  didn't pick". Render it as "Uncategorised". */
   category: string | null
+  /** The transaction's author, flattened from the relation. Always present —
+   *  it's the caller's own first name when there's no active share, and
+   *  whichever household member actually entered the row when there is. */
+  ownerName: string
   createdAt: string
+}
+
+/** A household sharing relationship. Its existence *is* the active state —
+ *  there is no pending/accepted status yet, since the invite mechanism isn't
+ *  built. `budgetOwnerUserId` names whichever member's categories/budgets are
+ *  canonical for both; either member can change it. */
+export type Share = {
+  id: number
+  partner: { id: number; firstName: string; lastName: string; email: string }
+  budgetOwnerUserId: number
+  isInitiator: boolean
 }
 
 export class ApiError extends Error {
@@ -300,3 +315,27 @@ export const putBudget = (
  *  "no budget". 204. */
 export const deleteBudget = (token: string, categoryId: number, month: string) =>
   requestVoid(`/api/budgets/${categoryId}?month=${month}`, { method: 'DELETE' }, token)
+
+// --- sharing -----------------------------------------------------------------
+
+/** The caller's active share, or null. */
+export const getMyShare = (token: string) => request<Share | null>('/api/shares/me', {}, token)
+
+/** Real and working, even though nothing in the UI calls it yet — the invite
+ *  *mechanism* (notifying, accepting) is what's not built. Creates an active
+ *  share immediately; the caller becomes the initiator. */
+export const createShare = (token: string, partnerEmail: string) =>
+  request<Share>('/api/shares', { method: 'POST', body: JSON.stringify({ partnerEmail }) }, token)
+
+/** Either member may change whose budgets are canonical. */
+export const updateShareBudgetOwner = (token: string, id: number, budgetOwnerUserId: number) =>
+  request<Share>(
+    `/api/shares/${id}`,
+    { method: 'PATCH', body: JSON.stringify({ budgetOwnerUserId }) },
+    token,
+  )
+
+/** Ends the share. Non-destructive on both sides: nothing was migrated when
+ *  the share was created, so nothing needs to be undone here either. 204. */
+export const deleteShare = (token: string, id: number) =>
+  requestVoid(`/api/shares/${id}`, { method: 'DELETE' }, token)

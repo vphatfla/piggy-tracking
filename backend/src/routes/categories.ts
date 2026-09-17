@@ -2,11 +2,14 @@ import { Router } from 'express'
 import { HttpError, parseIdParam, requiredString } from '../http.ts'
 import { authedUserId, requireAuth } from '../middleware/auth.ts'
 import { prisma } from '../prisma.ts'
+import { effectiveBudgetOwnerId } from '../sharing.ts'
 
 export const categoriesRouter = Router()
 
 // As everywhere else: userId comes from the access token, so a caller can only
-// ever see and create their own categories.
+// ever see and create their own categories — unless they're in an active
+// share, in which case every handler below resolves to the share's canonical
+// budgetOwnerUserId instead, so both members read and write the same rows.
 categoriesRouter.use(requireAuth)
 
 // GET /api/categories
@@ -16,7 +19,7 @@ categoriesRouter.use(requireAuth)
 categoriesRouter.get('/', async (req, res, next) => {
   try {
     const categories = await prisma.category.findMany({
-      where: { userId: authedUserId(req) },
+      where: { userId: await effectiveBudgetOwnerId(authedUserId(req)) },
       orderBy: { name: 'asc' },
     })
     res.json(categories)
@@ -38,7 +41,7 @@ categoriesRouter.get('/', async (req, res, next) => {
 // the fix, if it ever is, is a citext column rather than a lock.
 categoriesRouter.post('/', async (req, res, next) => {
   try {
-    const userId = authedUserId(req)
+    const userId = await effectiveBudgetOwnerId(authedUserId(req))
     const name = requiredString(req.body, 'name')
 
     const existing = await prisma.category.findFirst({
@@ -66,7 +69,7 @@ categoriesRouter.post('/', async (req, res, next) => {
 // which the error middleware already maps to the same 409.
 categoriesRouter.patch('/:id', async (req, res, next) => {
   try {
-    const userId = authedUserId(req)
+    const userId = await effectiveBudgetOwnerId(authedUserId(req))
     const id = parseIdParam(req.params.id)
     const name = requiredString(req.body, 'name')
 
@@ -98,7 +101,7 @@ categoriesRouter.delete('/:id', async (req, res, next) => {
   try {
     // deleteMany for the same reason PATCH uses updateMany, above.
     const { count } = await prisma.category.deleteMany({
-      where: { id: parseIdParam(req.params.id), userId: authedUserId(req) },
+      where: { id: parseIdParam(req.params.id), userId: await effectiveBudgetOwnerId(authedUserId(req)) },
     })
     if (count === 0) throw new HttpError(404, `No category with id ${req.params.id}`)
     res.status(204).end()
