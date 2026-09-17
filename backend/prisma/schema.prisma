@@ -27,6 +27,7 @@ model User {
   transactions  Transaction[]
   categories    Category[]
   budgets       Budget[]
+  incomes       Income[]
   refreshTokens RefreshToken[]
 
   shareInitiations       Share[] @relation("ShareInitiator")
@@ -131,6 +132,44 @@ model Budget {
   category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
   @@unique([userId, categoryId, month])
+  @@index([userId, month])
+}
+
+/// A user's income, one-time or recurring — the counterpart to spending, so a
+/// month can be judged against what came in, not just what went out.
+///
+/// Deliberately does **not** merge under a Share the way Category/Budget do
+/// (see `effectiveBudgetOwnerId` in src/sharing.ts): both partners' income
+/// stays separate and attributed, only visibility is pooled (see
+/// `visibleUserIds`). Unlike Budget, more than one row can be in effect for
+/// the same user in the same month — two income sources are both real at
+/// once — so this is never resolved to "one row per key" the way Budget's
+/// upsert is, and there is no `@@unique` here.
+///
+/// - `ONE_TIME`: `month` is the single month it counts in; `endMonth` unused.
+/// - `RECURRING`: `month` is the first month it's in effect. `endMonth` NULL
+///   means still ongoing; a later edit to the amount closes this row
+///   (`endMonth` set) and opens a new one from the month being edited
+///   forward, so a raise this month doesn't retroactively change what a past
+///   month was actually scored against — same reasoning as Budget's
+///   inheritance, a closed range instead of "latest row at or before".
+enum IncomeType {
+  ONE_TIME
+  RECURRING
+}
+
+model Income {
+  id        Int        @id @default(autoincrement())
+  userId    Int
+  source    String
+  amount    Decimal    @db.Decimal(10, 2)
+  type      IncomeType
+  month     String     @db.VarChar(7)
+  endMonth  String?    @db.VarChar(7)
+  createdAt DateTime   @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId, month])
 }
 

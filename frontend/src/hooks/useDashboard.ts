@@ -1,19 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   createCategory,
+  createIncome,
   createTransaction,
   deleteCategory,
+  deleteIncome,
   deleteShare,
   getBudgets,
   getBudgetsExist,
   getCategories,
+  getIncomes,
   getMyShare,
   getReceipts,
   getTransactions,
   updateCategory,
+  updateIncome,
+  updateRecurringIncomeAmount,
   updateShareBudgetOwner,
   type Budget,
   type Category,
+  type Income,
   type Receipt,
   type Session,
   type Share,
@@ -54,6 +60,11 @@ export function useDashboard(session: Session) {
   const [expandedCategoryId, setExpandedCategoryId] = useState<number | 'uncategorised' | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
   const [budgets, setBudgets] = useState<Budget[]>([])
+  const [incomes, setIncomes] = useState<Income[]>([])
+  const [expandedIncome, setExpandedIncome] = useState(false)
+  const [expandedIncomeId, setExpandedIncomeId] = useState<number | null>(null)
+  const [addingIncome, setAddingIncome] = useState(false)
+  const [incomeError, setIncomeError] = useState<string | null>(null)
   // null means "no active share" — same sentinel the API itself returns, so
   // there is no separate "loading" state to reconcile with it.
   const [share, setShare] = useState<Share | null>(null)
@@ -105,15 +116,17 @@ export function useDashboard(session: Session) {
       // Budgets ride along with the month rather than being fetched once like
       // categories: the limit in force genuinely differs month to month, and in
       // parallel it costs no extra latency.
-      const [r, t, b] = await Promise.all([
+      const [r, t, b, inc] = await Promise.all([
         getReceipts(accessToken),
         getTransactions(accessToken, monthBounds(month)),
         getBudgets(accessToken, month),
+        getIncomes(accessToken, month),
       ])
       if (id !== requestId.current) return
       setReceipts(r)
       setTransactions(t)
       setBudgets(b)
+      setIncomes(inc)
       setOrder(sortTransactions(t, sortRef.current).map((x) => x.id))
       setExpandedId(null)
     } catch (e) {
@@ -324,6 +337,75 @@ export function useDashboard(session: Session) {
     )
   }
 
+  // Refetches income only, not refresh() — an income write cannot touch a
+  // transaction or budget, same reasoning as refreshBudgets above. Simpler
+  // than re-deriving "is this row effective this month" client-side, and the
+  // server already computed it correctly for the GET.
+  const refreshIncomes = useCallback(async () => {
+    setIncomes(await getIncomes(accessToken, month))
+  }, [accessToken, month])
+
+  async function onAddIncome(body: {
+    source: string
+    amount: string
+    type: 'ONE_TIME' | 'RECURRING'
+    month: string
+  }) {
+    setIncomeError(null)
+    try {
+      await createIncome(accessToken, body)
+      await refreshIncomes()
+      setAddingIncome(false)
+    } catch (e) {
+      setIncomeError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  /** A plain field correction — renaming a source, or a ONE_TIME amount. Never
+   *  for a RECURRING amount; that goes through onUpdateRecurringIncome so past
+   *  months keep the value they actually had. */
+  async function onUpdateIncome(id: number, patch: Partial<{ source: string; amount: string }>) {
+    setIncomeError(null)
+    try {
+      await updateIncome(accessToken, id, patch)
+      await refreshIncomes()
+      setExpandedIncomeId(null)
+    } catch (e) {
+      setIncomeError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  async function onUpdateRecurringIncome(id: number, body: { amount: string; effectiveMonth: string }) {
+    setIncomeError(null)
+    try {
+      await updateRecurringIncomeAmount(accessToken, id, body)
+      await refreshIncomes()
+      setExpandedIncomeId(null)
+    } catch (e) {
+      setIncomeError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  async function onDeleteIncome(id: number) {
+    setIncomeError(null)
+    try {
+      await deleteIncome(accessToken, id)
+      await refreshIncomes()
+      setExpandedIncomeId(null)
+    } catch (e) {
+      setIncomeError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  function onToggleIncome() {
+    setExpandedIncome((e) => !e)
+    setExpandedIncomeId(null)
+  }
+
+  function onToggleIncomeRow(id: number) {
+    setExpandedIncomeId((cur) => (cur === id ? null : id))
+  }
+
   function onSortPress(key: SortKey) {
     // Pressing the inactive chip switches field; pressing the active one flips
     // direction.
@@ -377,6 +459,10 @@ export function useDashboard(session: Session) {
 
   const receiptFor = (id: number | null) => receipts.find((r) => r.id === id)
   const total = sumMoney(transactions.map((t) => t.amount))
+  // Both owners' rows summed — this is the one place Income is combined, and
+  // it is display arithmetic only: the rows behind it stay separate and
+  // attributed, nothing is merged server-side.
+  const totalIncome = sumMoney(incomes.map((i) => i.amount))
   const byId = new Map(transactions.map((t) => [t.id, t]))
   const rows = order.flatMap((id) => byId.get(id) ?? [])
 
@@ -402,6 +488,19 @@ export function useDashboard(session: Session) {
     onRenameCategory,
     onDeleteCategory,
     budgets,
+    incomes,
+    totalIncome,
+    expandedIncome,
+    onToggleIncome,
+    expandedIncomeId,
+    onToggleIncomeRow,
+    addingIncome,
+    setAddingIncome,
+    incomeError,
+    onAddIncome,
+    onUpdateIncome,
+    onUpdateRecurringIncome,
+    onDeleteIncome,
     hasAnyBudgets,
     editingBudgets,
     setEditingBudgets,

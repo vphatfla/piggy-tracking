@@ -143,6 +143,27 @@ export const serializeTransaction = <
   }
 }
 
+/** Same shape as `serializeTransaction`'s `ownerName` flattening, for the same
+ *  reason: a caller under a share sees a partner's income too, so `ownerName`
+ *  is always present rather than a separate shared/unshared code path.
+ *  `month`/`endMonth` pass through unchanged — they're already VARCHAR(7) on
+ *  the wire, not a DATE needing conversion. */
+export const serializeIncome = <
+  T extends {
+    amount: Prisma.Decimal
+    user: { firstName: string }
+  },
+>(
+  i: T,
+) => {
+  const { user, ...rest } = i
+  return {
+    ...rest,
+    amount: i.amount.toFixed(2),
+    ownerName: user.firstName,
+  }
+}
+
 /** Strips `googleId` — it is an authentication identifier, and nothing outside
  *  the sign-in flow has any reason to see it. */
 export const serializeUser = <T extends { googleId: string }>(user: T) => {

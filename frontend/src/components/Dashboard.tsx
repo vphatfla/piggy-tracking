@@ -4,12 +4,14 @@ import { formatMoney } from '../format'
 import { useDashboard } from '../hooks/useDashboard'
 import { formatMonthLabel } from '../month'
 import { AccountMenu } from './AccountMenu'
+import { AddIncomeSheet } from './AddIncomeSheet'
 import { AddTransactionMenu } from './AddTransactionMenu'
 import { AddTransactionSheet } from './AddTransactionSheet'
 import { BudgetEditor } from './BudgetEditor'
 import { BudgetRow } from './BudgetRow'
 import { ErrorNotice } from './ErrorNotice'
-import { Chevron, SlidersIcon } from './icons'
+import { Chevron, ChevronDown, PlusIcon, SlidersIcon } from './icons'
+import { IncomeRow } from './IncomeRow'
 import { SharePage } from './SharePage'
 import { SortChip } from './SortChip'
 import { StepButton } from './StepButton'
@@ -37,6 +39,19 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     onRenameCategory,
     onDeleteCategory,
     budgets,
+    incomes,
+    totalIncome,
+    expandedIncome,
+    onToggleIncome,
+    expandedIncomeId,
+    onToggleIncomeRow,
+    addingIncome,
+    setAddingIncome,
+    incomeError,
+    onAddIncome,
+    onUpdateIncome,
+    onUpdateRecurringIncome,
+    onDeleteIncome,
     hasAnyBudgets,
     editingBudgets,
     onToggleBudgetEditor,
@@ -157,6 +172,61 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                 requestAnimationFrame(() => merchantInputRef.current?.focus())
               }}
             />
+          </div>
+          {/* Income vs. spending, side by side — the comparison this feature
+              exists for, not a separate view to switch to. Tap-to-expand for
+              the per-source breakdown, same idiom as everything else here. */}
+          <div className={`mt-3 overflow-hidden rounded-card bg-surface shadow-card transition-opacity duration-200 ease-out ${dim}`}>
+            <button
+              type="button"
+              onClick={onToggleIncome}
+              aria-expanded={expandedIncome}
+              aria-controls="income-breakdown"
+              className="flex min-h-11 w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors duration-150 ease-out active:bg-surface-raised focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+            >
+              <span className="text-subheadline text-label-secondary">Income</span>
+              <span className="flex items-center gap-2">
+                <span className="text-headline tabular-nums text-success">{formatMoney(totalIncome)}</span>
+                <span
+                  className={`text-label-tertiary transition-transform duration-200 ease-out ${expandedIncome ? 'rotate-180' : ''}`}
+                >
+                  <ChevronDown />
+                </span>
+              </span>
+            </button>
+            {expandedIncome && (
+              <div className="border-t border-separator">
+                <ul id="income-breakdown">
+                  {incomes.map((i, idx) => (
+                    <IncomeRow
+                      key={i.id}
+                      income={i}
+                      index={idx}
+                      month={month}
+                      open={expandedIncomeId === i.id}
+                      onToggle={() => onToggleIncomeRow(i.id)}
+                      showOwner={share !== null}
+                      onSaveField={onUpdateIncome}
+                      onSaveRecurring={onUpdateRecurringIncome}
+                      onDelete={onDeleteIncome}
+                    />
+                  ))}
+                  {incomes.length === 0 && (
+                    <li className="px-4 py-6 text-center text-footnote text-label-tertiary">No income logged for {formatMonthLabel(month)}.</li>
+                  )}
+                </ul>
+                <div className="border-t border-separator px-2 py-2">
+                  <button
+                    type="button"
+                    onClick={() => setAddingIncome(true)}
+                    className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-control px-3 text-body font-semibold text-accent-text transition-colors duration-200 ease-out hover:bg-surface-raised"
+                  >
+                    <PlusIcon />
+                    Add income
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </header>
 
@@ -328,6 +398,14 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
         selectedCategory={selectedCategory}
         setCategoryId={setCategoryId}
         onAddCategory={onAddCategory}
+      />
+
+      <AddIncomeSheet
+        open={addingIncome}
+        month={month}
+        error={incomeError}
+        onClose={() => setAddingIncome(false)}
+        onSubmit={onAddIncome}
       />
 
       <SharePage
