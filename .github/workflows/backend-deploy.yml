@@ -17,7 +17,17 @@ permissions:
 jobs:
   deploy:
     name: Build, Push, and Deploy Backend
-    runs-on: ubuntu-latest
+    # A native arm64 runner, not ubuntu-latest + QEMU. The box is a t4g.nano
+    # (arm64/Graviton) — building for it on an amd64 runner needs a foreign-
+    # architecture emulator, and QEMU's user-mode CPU emulation has a known,
+    # non-deterministic bug where it mis-handles some instruction Node's V8
+    # JIT emits under load (npm ci): "Illegal instruction (core dumped)",
+    # different outcome on an identical commit across runs. It first bit the
+    # shared-budget merge (2026-09-17) and silently broke every deploy after
+    # it — the backend ran a Sept 10 build for a week while two feature
+    # merges landed with no route for either. Building natively removes the
+    # emulator instead of hoping around its bug.
+    runs-on: ubuntu-24.04-arm
     environment: production
 
     steps:
@@ -34,29 +44,19 @@ jobs:
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
-      # ubuntu-latest runners are amd64; the backend instance is a t4g.nano
-      # (arm64/Graviton). A plain `docker build` on this runner produces an
-      # amd64 image that the box can pull fine but can't execute — "exec
-      # format error", crash-looping forever. Confirmed the hard way against
-      # the real box. QEMU + buildx cross-builds for arm64 instead.
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
+      # No QEMU, no buildx cross-build: runs-on above is already arm64, so a
+      # plain `docker build` produces a native image directly — the thing
+      # that broke is gone, not worked around.
       - name: Build and push backend image
         env:
           ECR_REPOSITORY: ${{ steps.ecr-login.outputs.registry }}/${{ secrets.AWS_ECR_BACKEND_REPOSITORY }}
         run: |
-          docker buildx build \
-            --platform linux/arm64 \
+          docker build \
             -t "${ECR_REPOSITORY}:${{ github.sha }}" \
             -t "${ECR_REPOSITORY}:latest" \
-            --push \
             ./backend
+          docker push "${ECR_REPOSITORY}:${{ github.sha }}"
+          docker push "${ECR_REPOSITORY}:latest"
           echo "image=${ECR_REPOSITORY}:${{ github.sha }}" >> "$GITHUB_ENV"
 
       - name: Upload deploy artifacts

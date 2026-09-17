@@ -136,8 +136,12 @@ re-deriving them from the code is slower than reading this.
 
 Shipped: spending dates, the month view with optional sorting, categories with
 an inline-create picker (renamed and deleted from the budget editor),
-tap-to-expand editing and deletion, and per-category monthly budgets with a
-spent-vs-limit breakdown.
+tap-to-expand editing and deletion, per-category monthly budgets with a
+spent-vs-limit breakdown, household sharing (pairwise, transactions pooled
+and jointly editable, categories/budgets canonical-merged — see the `Share`
+model and `src/sharing.ts`), and income tracking — one-time or recurring,
+visible to a share partner but never merged or partner-editable (the
+opposite call from budgets; see `docs/income.md`).
 
 The two roadmap milestones were built in the other order, and that is worth
 knowing: **budgets landed first, and the breakdown came with them** — the
@@ -158,7 +162,12 @@ What is left:
    limits are per-category only, so the month header shows spending with nothing
    to compare it against. If it is added, read the NULL-`categoryId` trap in
    `docs/budgets.md` first — the obvious implementation silently enforces
-   nothing.
+   nothing. Income (below) is a spending-vs-income comparison, not a cap —
+   the gap this item describes is still open.
+3. **A real invite mechanism for sharing.** `POST /api/shares` creates an
+   active share immediately; there is no pending/accepted state, and the
+   frontend's "Invite" affordance is a deliberate no-op. See the `Share`
+   model's doc-comment in `schema.prisma`.
 
 ## Auth
 
@@ -225,6 +234,7 @@ change** that makes them stale, not afterwards:
 | auth: token lifetimes, cookie flags, what a route trusts | this file's Auth section + `backend/CLAUDE.md` |
 | a settled product decision, or a milestone shipped | this file's Product shape / Where this is going |
 | anything about budgets — the model, inheritance, the routes | `docs/budgets.md` |
+| anything about income — the model, forward-only edits, the routes | `docs/income.md` |
 | infra: instance size, volumes, IAM, the oppy-marser coupling, deploy mechanism | this file's Production section + `terraform/README.md` |
 
 Record the *why* and the traps — version quirks, non-obvious constraints,

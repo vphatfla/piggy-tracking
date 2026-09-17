@@ -80,6 +80,25 @@ export type Share = {
   isInitiator: boolean
 }
 
+/** One source of income, one-time or recurring — the counterpart to spending.
+ *  Deliberately does not merge under a share the way Budget/Category do: both
+ *  partners' income is visible together (for a household total) but stays
+ *  attributed and separate, never combined into one row. `ownerName` follows
+ *  the same always-present convention as Transaction's. `endMonth` is only
+ *  ever non-null on a RECURRING row a later edit has closed off — see
+ *  `updateIncome`. */
+export type Income = {
+  id: number
+  userId: number
+  source: string
+  amount: string // DECIMAL(10,2), see Receipt.totalAmount
+  type: 'ONE_TIME' | 'RECURRING'
+  month: string // YYYY-MM
+  endMonth: string | null
+  ownerName: string
+  createdAt: string
+}
+
 export class ApiError extends Error {
   // Declared and assigned rather than a constructor parameter property, which
   // the frontend's `erasableSyntaxOnly` tsconfig disallows.
@@ -315,6 +334,42 @@ export const putBudget = (
  *  "no budget". 204. */
 export const deleteBudget = (token: string, categoryId: number, month: string) =>
   requestVoid(`/api/budgets/${categoryId}?month=${month}`, { method: 'DELETE' }, token)
+
+// --- income ------------------------------------------------------------------
+
+/** Income *effective* in `month` — every row in scope for the caller
+ *  (including a share partner's, view-only), a ONE_TIME row set for exactly
+ *  this month, or a RECURRING row whose range covers it. */
+export const getIncomes = (token: string, month: string) =>
+  request<Income[]>(`/api/incomes?month=${month}`, {}, token)
+
+export const createIncome = (
+  token: string,
+  body: { source: string; amount: string; type: 'ONE_TIME' | 'RECURRING'; month: string },
+) => request<Income>('/api/incomes', { method: 'POST', body: JSON.stringify(body) }, token)
+
+/** A plain field correction — renaming the source, or fixing a ONE_TIME
+ *  amount. Never use this to change a RECURRING amount; that goes through
+ *  `updateRecurringIncomeAmount` so past months keep the value they actually
+ *  had. */
+export const updateIncome = (token: string, id: number, patch: Partial<{ source: string; amount: string }>) =>
+  request<Income>(`/api/incomes/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }, token)
+
+/** Changes a RECURRING income's amount *going forward*: the current row is
+ *  closed off at the month before `effectiveMonth`, and a new one starts
+ *  there with the new amount, so a raise doesn't silently change what an
+ *  earlier month was actually compared against. Returns the new row, not the
+ *  one that was closed. */
+export const updateRecurringIncomeAmount = (
+  token: string,
+  id: number,
+  body: { amount: string; effectiveMonth: string },
+) => request<Income>(`/api/incomes/${id}`, { method: 'PATCH', body: JSON.stringify(body) }, token)
+
+/** 204. Only ever your own row — a share partner's income is visible but not
+ *  yours to delete. */
+export const deleteIncome = (token: string, id: number) =>
+  requestVoid(`/api/incomes/${id}`, { method: 'DELETE' }, token)
 
 // --- sharing -----------------------------------------------------------------
 
