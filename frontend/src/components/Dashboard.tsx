@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { Session } from '../api'
 import { formatMoney } from '../format'
 import { useDashboard } from '../hooks/useDashboard'
@@ -9,6 +10,7 @@ import { BudgetEditor } from './BudgetEditor'
 import { BudgetRow } from './BudgetRow'
 import { ErrorNotice } from './ErrorNotice'
 import { Chevron, SlidersIcon } from './icons'
+import { SharePage } from './SharePage'
 import { SortChip } from './SortChip'
 import { StepButton } from './StepButton'
 import { TransactionRow } from './TransactionRow'
@@ -40,6 +42,9 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     onToggleBudgetEditor,
     refreshBudgets,
     setEditingBudgets,
+    share,
+    onChangeBudgetOwner,
+    onLeaveShare,
     themePref,
     onThemeChange,
     addingTransaction,
@@ -67,6 +72,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     cents,
   } = useDashboard(session)
   const dim = loading ? 'opacity-40' : ''
+  const [sharingOpen, setSharingOpen] = useState(false)
 
   // Shared by both drill-down entry points (a real category and the
   // Uncategorised bucket) so the two never render differently.
@@ -87,6 +93,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             onAddCategory={onAddCategory}
             onSaved={onSaved}
             onDeleted={onDeleted}
+            showOwner={share !== null}
           />
         ))}
         {categoryRows.length === 0 && (
@@ -110,6 +117,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               user={user}
               themePref={themePref}
               onThemeChange={onThemeChange}
+              onOpenShare={() => setSharingOpen(true)}
               onLogout={onLogout}
             />
           </div>
@@ -283,6 +291,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                   onAddCategory={onAddCategory}
                   onSaved={onSaved}
                   onDeleted={onDeleted}
+                  showOwner={share !== null}
                 />
               ))}
               {rows.length === 0 && !error && (
@@ -319,6 +328,15 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
         selectedCategory={selectedCategory}
         setCategoryId={setCategoryId}
         onAddCategory={onAddCategory}
+      />
+
+      <SharePage
+        open={sharingOpen}
+        onClose={() => setSharingOpen(false)}
+        user={user}
+        share={share}
+        onChangeBudgetOwner={onChangeBudgetOwner}
+        onLeaveShare={onLeaveShare}
       />
     </main>
   )

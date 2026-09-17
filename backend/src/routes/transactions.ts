@@ -14,6 +14,7 @@ import {
 } from '../http.ts'
 import { authedUserId, requireAuth } from '../middleware/auth.ts'
 import { prisma } from '../prisma.ts'
+import { effectiveBudgetOwnerId, visibleUserIds } from '../sharing.ts'
 
 export const transactionsRouter = Router()
 
@@ -36,14 +37,18 @@ transactionsRouter.get('/', async (req, res, next) => {
 
     const transactions = await prisma.transaction.findMany({
       where: {
-        userId: authedUserId(req),
+        // Just the caller normally; both members' ids under an active
+        // share, which is the one change that pools two people's spending
+        // into one view.
+        userId: { in: await visibleUserIds(authedUserId(req)) },
         // Omitted entirely when neither bound is given, so a bare GET still
         // means "everything".
         ...(from || to ? { date: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
       },
       // One query rather than a name lookup per row; serializeTransaction
-      // flattens it to `category: string | null`.
-      include: { category: { select: { name: true } } },
+      // flattens category to `category: string | null` and user to
+      // `ownerName`, so a shared view can show whose row each one is.
+      include: { category: { select: { name: true } }, user: { select: { firstName: true } } },
       orderBy: [{ date: 'desc' }, { id: 'desc' }],
     })
     res.json(transactions.map(serializeTransaction))
@@ -60,17 +65,20 @@ transactionsRouter.post('/', async (req, res, next) => {
 
     // Required here even though the column is nullable: every transaction the
     // app creates is categorised, while NULL is reserved for rows whose
-    // category was later deleted. And like receiptId, it is checked against the
-    // caller — the foreign key proves the category exists, not whose it is.
+    // category was later deleted. Checked against the share's canonical
+    // budget owner, not the caller directly — a shared category belongs to
+    // whichever member is `budgetOwnerUserId`, not necessarily the poster.
     const categoryId = requiredInt(req.body, 'categoryId')
-    const category = await ownedCategory(userId, categoryId)
+    const category = await ownedCategory(await effectiveBudgetOwnerId(userId), categoryId)
 
     // receiptId is the one field that could still point across users, so it is
-    // checked explicitly — the FK alone only proves the receipt exists.
+    // checked explicitly — the FK alone only proves the receipt exists. Widened
+    // to the shared visible set: under an active share a transaction may
+    // reference either member's receipt.
     let receipt: { id: number; date: Date } | null = null
     if (receiptId !== null) {
       receipt = await prisma.receipt.findFirst({
-        where: { id: receiptId, userId },
+        where: { id: receiptId, userId: { in: await visibleUserIds(userId) } },
         select: { id: true, date: true },
       })
       if (!receipt) throw new HttpError(404, `No receipt with id ${receiptId}`)
@@ -92,9 +100,10 @@ transactionsRouter.post('/', async (req, res, next) => {
         amount: requiredMoney(req.body, 'amount'),
         categoryId,
       },
+      include: { user: { select: { firstName: true } } },
     })
-    // The name is already in hand from the ownership check, so the created row
-    // comes back in the same shape the list endpoint returns.
+    // The category name is already in hand from the ownership check, so the
+    // created row comes back in the same shape the list endpoint returns.
     res.status(201).json(serializeTransaction({ ...transaction, category }))
   } catch (err) {
     next(err)
@@ -124,6 +133,7 @@ async function ownedCategory(userId: number, categoryId: number) {
 transactionsRouter.patch('/:id', async (req, res, next) => {
   try {
     const userId = authedUserId(req)
+    const ownerIds = await visibleUserIds(userId)
     const id = parseIdParam(req.params.id)
     const body = (req.body ?? {}) as Record<string, unknown>
 
@@ -134,16 +144,19 @@ transactionsRouter.patch('/:id', async (req, res, next) => {
 
     if ('categoryId' in body) {
       // null clears the category — the column is nullable precisely so a row can
-      // outlive its label.
+      // outlive its label. Checked against the share's canonical budget owner,
+      // same reasoning as POST.
       data.categoryId =
-        body.categoryId === null ? null : (await ownedCategory(userId, requiredInt(body, 'categoryId'))).id
+        body.categoryId === null
+          ? null
+          : (await ownedCategory(await effectiveBudgetOwnerId(userId), requiredInt(body, 'categoryId'))).id
     }
 
     if ('receiptId' in body) {
       const receiptId = optionalInt(body, 'receiptId')
       if (receiptId !== null) {
         const receipt = await prisma.receipt.findFirst({
-          where: { id: receiptId, userId },
+          where: { id: receiptId, userId: { in: ownerIds } },
           select: { id: true },
         })
         if (!receipt) throw new HttpError(404, `No receipt with id ${receiptId}`)
@@ -154,15 +167,16 @@ transactionsRouter.patch('/:id', async (req, res, next) => {
     // An empty patch is a caller mistake, not a no-op worth pretending to honour.
     if (Object.keys(data).length === 0) throw badRequest('No updatable fields in request body')
 
-    // updateMany, not update: the userId sits in the WHERE clause, so ownership
-    // is part of the statement rather than a separate check with a window after
-    // it. `update({ where: { id } })` would happily write another user's row.
-    const { count } = await prisma.transaction.updateMany({ where: { id, userId }, data })
+    // updateMany, not update: userId sits in the WHERE clause, so ownership is
+    // part of the statement rather than a separate check with a window after
+    // it. `in: ownerIds` is what lets a caller edit their share partner's
+    // transaction — just the caller's own id when there is no active share.
+    const { count } = await prisma.transaction.updateMany({ where: { id, userId: { in: ownerIds } }, data })
     if (count === 0) throw new HttpError(404, `No transaction with id ${id}`)
 
     const transaction = await prisma.transaction.findUniqueOrThrow({
       where: { id },
-      include: { category: { select: { name: true } } },
+      include: { category: { select: { name: true } }, user: { select: { firstName: true } } },
     })
     res.json(serializeTransaction(transaction))
   } catch (err) {
@@ -180,7 +194,7 @@ transactionsRouter.delete('/:id', async (req, res, next) => {
     // deleteMany for the same reason PATCH uses updateMany — see above.
     // `delete({ where: { id } })` deletes any user's row by id.
     const { count } = await prisma.transaction.deleteMany({
-      where: { id: parseIdParam(req.params.id), userId: authedUserId(req) },
+      where: { id: parseIdParam(req.params.id), userId: { in: await visibleUserIds(authedUserId(req)) } },
     })
     if (count === 0) throw new HttpError(404, `No transaction with id ${req.params.id}`)
     res.status(204).end()

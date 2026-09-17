@@ -9,6 +9,7 @@ import {
 } from '../http.ts'
 import { authedUserId, requireAuth } from '../middleware/auth.ts'
 import { prisma } from '../prisma.ts'
+import { effectiveBudgetOwnerId } from '../sharing.ts'
 
 export const budgetsRouter = Router()
 
@@ -47,7 +48,7 @@ async function ownedCategory(userId: number, categoryId: number) {
 budgetsRouter.get('/exists', async (req, res, next) => {
   try {
     const budget = await prisma.budget.findFirst({
-      where: { userId: authedUserId(req) },
+      where: { userId: await effectiveBudgetOwnerId(authedUserId(req)) },
       select: { id: true },
     })
     res.json({ exists: budget !== null })
@@ -71,7 +72,7 @@ budgetsRouter.get('/', async (req, res, next) => {
     const month = requiredMonth(req.query, 'month')
 
     const rows = await prisma.budget.findMany({
-      where: { userId: authedUserId(req), month: { lte: month } },
+      where: { userId: await effectiveBudgetOwnerId(authedUserId(req)), month: { lte: month } },
       // Ascending, so a later row for the same category simply overwrites the
       // earlier one in the map below and the last write wins.
       orderBy: { month: 'asc' },
@@ -102,7 +103,7 @@ budgetsRouter.get('/', async (req, res, next) => {
 // row and leaves the older one to keep scoring the months it applied to.
 budgetsRouter.put('/', async (req, res, next) => {
   try {
-    const userId = authedUserId(req)
+    const userId = await effectiveBudgetOwnerId(authedUserId(req))
     const categoryId = requiredInt(req.body, 'categoryId')
     const month = requiredMonth(req.body, 'month')
     const amount = requiredMoney(req.body, 'amount')
@@ -143,7 +144,7 @@ budgetsRouter.delete('/:categoryId', async (req, res, next) => {
     // of the statement rather than a check with a window after it.
     const { count } = await prisma.budget.deleteMany({
       where: {
-        userId: authedUserId(req),
+        userId: await effectiveBudgetOwnerId(authedUserId(req)),
         categoryId: parseIdParam(req.params.categoryId, 'categoryId'),
         month,
       },

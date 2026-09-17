@@ -117,18 +117,29 @@ export const serializeReceipt = <T extends { date: Date; totalAmount: Prisma.Dec
  *  category was deleted — `categoryId` is SET NULL, and the spending survives
  *  without its label. Callers that did not `include` the relation get
  *  `category: null` too, which is the same thing as far as a client is
- *  concerned: no name to show. */
+ *  concerned: no name to show.
+ *
+ *  `ownerName` is the flattened `user.firstName` — always present, so a
+ *  client doesn't need a separate shared/unshared code path: it reads as the
+ *  caller's own name when there's no active share, and as whichever member
+ *  actually entered the row when there is one. */
 export const serializeTransaction = <
-  T extends { amount: Prisma.Decimal; date: Date; category?: { name: string } | null },
+  T extends {
+    amount: Prisma.Decimal
+    date: Date
+    category?: { name: string } | null
+    user: { firstName: string }
+  },
 >(
   t: T,
 ) => {
-  const { category, ...rest } = t
+  const { category, user, ...rest } = t
   return {
     ...rest,
     date: toDateOnly(t.date),
     amount: t.amount.toFixed(2),
     category: category?.name ?? null,
+    ownerName: user.firstName,
   }
 }
 
