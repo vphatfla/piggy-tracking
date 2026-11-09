@@ -231,8 +231,8 @@ Production section for the URL.
 
 - **`base` is conditional on `command`, not a fixed value** — production
   (`vite build`) serves from `/app/piggy-tracking/` (see root `CLAUDE.md`'s
-  Production section for why: nginx on the self-hosted box routes that path
-  prefix to this build, it is not its own domain), dev stays at `/`. The manifest's
+  Production section for why: nginx routes that path prefix to this build,
+  it is not its own domain), dev stays at `/`. The manifest's
   `start_url` and `scope` are both derived from that same `base` constant
   rather than hardcoded, so they can't drift from it independently.
 - `public/pwa-192x192.png` and `pwa-512x512.png` are **still flat-colour
@@ -247,10 +247,10 @@ Production section for the URL.
 
 ### Cache headers: the rule is the filename
 
-The build is served by **nginx on the self-hosted box** — its config lives in
-the `homelab-setup` repo, not here. This section is the rule that config has
-to keep, because it was learned the hard way in production and the knowledge
-does not live in the file that implements it.
+The build is served by **nginx in production** — its config lives outside
+this repo. This section is the rule that config has to keep, because it was
+learned the hard way in production and the knowledge does not live in the
+file that implements it.
 
 The rule is **is this filename content-hashed?** — not a list of exceptions:
 
@@ -275,11 +275,11 @@ clients, and it is the opposite of the win it looks like.
 
 **An origin header is not enough on its own.** `vphatfla.me` sits behind
 **Cloudflare**, which keeps serving what it has until something tells it to
-re-ask. A deploy that reaches the box has not necessarily reached the
+re-ask. A deploy that reaches the origin has not necessarily reached the
 browser. If a change is live on the origin but not on the site, compare
 `curl -sI` against the live URL — an `age:` or `last-modified:` that
-disagrees with the file on the box is this failure, and it needs a Cloudflare
-cache purge, not another deploy.
+disagrees with the file on the origin is this failure, and it needs a
+Cloudflare cache purge, not another deploy.
 
 ## Backend calls
 

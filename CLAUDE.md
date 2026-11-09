@@ -13,10 +13,10 @@ Area-specific guides load automatically when you touch those directories:
 frontend/            React 19 + Vite 8 SPA. Runs NATIVELY — never containerised.
 backend/             Express 5 + Prisma 7 API. Containerised.
   prisma/            schema.prisma, migrations/, seed.ts  ← the database lives here
-docker-compose.yml   Two services only: db + backend. Used in dev and, with the
-                     homelab-setup repo's overlay on top, in production too.
+docker-compose.yml   Two services only: db + backend. This is the dev stack;
+                     how production composes it is configured elsewhere.
 .github/workflows/   CI only (ci.yml, every PR). There is no CD — deployment is
-                     driven from the homelab-setup repo. See § Production below.
+                     driven outside this repo. See § Production below.
 docs/                Design records: the reasoning behind a decision, kept
                      whether or not it is built yet.
 .env                 Gitignored. Copy from .env.example.
@@ -70,31 +70,32 @@ Never commit `.env`. When you add a key, add it to `.env.example` too.
 
 **Live** at `https://vphatfla.me/app/piggy-tracking/` (frontend, installable
 PWA) and `https://vphatfla.me/api/*` (backend). Both are served by a
-**self-hosted Docker server**, not a cloud provider:
+**Docker host** that this repo does not configure:
 
-- **nginx on that box** terminates the two path prefixes — `/app/piggy-tracking/*`
+- **nginx** terminates the two path prefixes — `/app/piggy-tracking/*`
   to the built frontend's static files, `/api/*` to the backend container.
   The path prefix is why `frontend/vite.config.ts` sets `base` to
   `/app/piggy-tracking/` on `vite build`; the two must stay in sync by hand.
-- **Postgres runs in Docker on the same box**, on a host bind mount so the
-  data outlives the container.
+- **Postgres runs in Docker alongside the backend.** How its data is
+  persisted is part of the production configuration, not this repo — do not
+  assume this repo's `docker-compose.yml` volume is what production uses.
 - **`vphatfla.me` sits behind Cloudflare.** The edge therefore caches, which
-  means a deploy reaching the box has not necessarily reached the browser —
+  means a deploy reaching the origin has not necessarily reached the browser —
   see `frontend/CLAUDE.md` § Cache headers before debugging a change that
   "didn't ship".
 
-**The nginx config, the production compose overlay, the real secrets, and the
-deploy procedure all live in the `homelab-setup` repo, not here.** This repo
-builds the two artifacts and nothing else:
+**The nginx config, the production compose setup, the real secrets, and the
+deploy procedure all live outside this repo.** This repo builds the two
+artifacts and nothing else:
 
 ```bash
 cd frontend && npm run build          # base is /app/piggy-tracking/ automatically
-docker build ./backend                # the backend image, built on the box
+docker build ./backend                # the backend image
 ```
 
 Deliberately *not* in this repo any more: there is no CD workflow, no
 registry push, and no infrastructure-as-code. A merge to main runs `ci.yml`
-and stops there. Deploying is a step taken from `homelab-setup`.
+and stops there. Deploying is a separate step, taken elsewhere.
 
 ### History: this ran on AWS until November 2026
 
@@ -241,7 +242,7 @@ change** that makes them stale, not afterwards:
 | a settled product decision, or a milestone shipped | this file's Product shape / Where this is going |
 | anything about budgets — the model, inheritance, the routes | `docs/budgets.md` |
 | anything about income — the model, forward-only edits, the routes | `docs/income.md` |
-| how production is served or deployed | this file's Production section — and the `homelab-setup` repo, which owns the nginx/compose/secrets half |
+| how production is served or deployed | this file's Production section — and the deployment configuration outside this repo, which owns the nginx/compose/secrets half |
 
 Record the *why* and the traps — version quirks, non-obvious constraints,
 decisions that look wrong but aren't. Do not restate what the code already says;

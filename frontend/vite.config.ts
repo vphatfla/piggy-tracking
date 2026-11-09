@@ -4,8 +4,8 @@ import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // Production serves from vphatfla.me/app/piggy-tracking/ (see the root
-// CLAUDE.md's Production section — nginx on the self-hosted box routes that
-// path prefix to this build). Dev stays at `/`: only
+// CLAUDE.md's Production section — nginx routes that path prefix to this
+// build). Dev stays at `/`: only
 // `vite build` (npm run build) needs the prefix, so `npm run dev` is
 // unaffected — asset URLs, the PWA scope, and start_url all derive from this
 // one constant rather than each hardcoding the path separately and risking
