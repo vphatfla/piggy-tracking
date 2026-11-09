@@ -1,8 +1,8 @@
 name: CI
 
 # No cloud credentials anywhere in this file, and none anywhere else in this
-# repo either — the self-hosted deployment is driven from the homelab-setup
-# repo, not from GitHub Actions. This workflow is the whole of CI.
+# repo either — deployment is driven outside this repo, not from GitHub
+# Actions. This workflow is the whole of CI.
 on:
   pull_request:
     branches: [main]

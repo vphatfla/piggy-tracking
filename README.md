@@ -56,21 +56,20 @@ docker compose exec backend npm run seed
 
 ## Deployment
 
-Production is a **self-hosted Docker server** at
-`https://vphatfla.me/app/piggy-tracking/` (frontend) and
-`https://vphatfla.me/api/*` (backend), with nginx routing those two path
-prefixes and Postgres in Docker on the same box.
+Production serves `https://vphatfla.me/app/piggy-tracking/` (frontend) and
+`https://vphatfla.me/api/*` (backend) from a **Docker host**, with nginx
+routing those two path prefixes and Postgres in Docker alongside the
+backend.
 
 This repo builds the artifacts; it does not deploy them:
 
 ```bash
 cd frontend && npm run build   # base is /app/piggy-tracking/ automatically
-docker build ./backend         # the backend image, built on the box
+docker build ./backend         # the backend image
 ```
 
-The nginx config, the production compose overlay, the real secrets, and the
-deploy procedure live in the **`homelab-setup`** repo. There is no CD
-workflow here — `.github/workflows/ci.yml` is the whole of CI, and a merge to
+The nginx config, the production compose setup, the real secrets, and the
+deploy procedure all live **outside this repo**. There is no CD workflow here — `.github/workflows/ci.yml` is the whole of CI, and a merge to
 main does not deploy anything.
 
 ## Endpoints
