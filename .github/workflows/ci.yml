@@ -1,8 +1,8 @@
 name: CI
 
-# No AWS credentials anywhere in this file — everything here is checkable
-# without touching cloud infrastructure. terraform-deploy.yml is where the
-# terraform/ directory gets an actual `plan`, with real credentials.
+# No cloud credentials anywhere in this file, and none anywhere else in this
+# repo either — the self-hosted deployment is driven from the homelab-setup
+# repo, not from GitHub Actions. This workflow is the whole of CI.
 on:
   pull_request:
     branches: [main]
@@ -162,32 +162,3 @@ jobs:
 
       - name: Build (no push)
         run: docker build ./backend
-
-  terraform:
-    name: Terraform — fmt + validate
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./terraform
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.9.0
-          terraform_wrapper: false
-
-      - name: Terraform Format Check
-        run: terraform fmt -check -recursive
-
-      # No backend config, no AWS credentials — validate only checks HCL
-      # syntax and type correctness, it never calls AWS. terraform-deploy.yml
-      # is what actually plans against real state/credentials.
-      - name: Terraform Init (no backend)
-        run: terraform init -backend=false
-
-      - name: Terraform Validate
-        run: terraform validate

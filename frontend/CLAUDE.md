@@ -231,8 +231,8 @@ Production section for the URL.
 
 - **`base` is conditional on `command`, not a fixed value** — production
   (`vite build`) serves from `/app/piggy-tracking/` (see root `CLAUDE.md`'s
-  Production section for why: it rides oppy-marser's CloudFront distribution,
-  path-routed, not its own domain), dev stays at `/`. The manifest's
+  Production section for why: nginx on the self-hosted box routes that path
+  prefix to this build, it is not its own domain), dev stays at `/`. The manifest's
   `start_url` and `scope` are both derived from that same `base` constant
   rather than hardcoded, so they can't drift from it independently.
 - `public/pwa-192x192.png` and `pwa-512x512.png` are **still flat-colour
@@ -247,9 +247,12 @@ Production section for the URL.
 
 ### Cache headers: the rule is the filename
 
-`frontend-deploy.yml` sets `Cache-Control` per path at upload time, and the
-rule it follows is **is this filename content-hashed?** — not a list of
-exceptions:
+The build is served by **nginx on the self-hosted box** — its config lives in
+the `homelab-setup` repo, not here. This section is the rule that config has
+to keep, because it was learned the hard way in production and the knowledge
+does not live in the file that implements it.
+
+The rule is **is this filename content-hashed?** — not a list of exceptions:
 
 - `assets/*` and `workbox-*.js` carry a hash, so their content can never
   change under a given name: `public,max-age=31536000,immutable`.
@@ -258,25 +261,25 @@ exceptions:
   is `no-cache`, meaning "revalidate before reusing", not "never cached".
 
 `index.html` is the one that bites, and it did: it was on the immutable side
-for a while because the workflow listed exceptions instead of stating the
+for a while because the old deploy listed exceptions instead of stating the
 rule. It is the file that names the hashed bundles, so a frozen copy of it
-pins the entire app to an old build — and since the sync prunes superseded
-assets, the bundles that copy asks for eventually stop existing and the live
-page 403s on its own JavaScript. Adding a new unhashed file to the build needs
-no change to the workflow; it lands on the `no-cache` side by default, which
-is the safe direction to be wrong in.
+pins the entire app to an old build — and if the deploy also prunes
+superseded assets, the bundles that copy asks for eventually stop existing
+and the live page 403s on its own JavaScript. State the rule by filename
+pattern; a new unhashed file then lands on the `no-cache` side by default,
+which is the safe direction to be wrong in.
 
 Don't relax any of the `no-cache` paths to a long TTL "for performance" — for
 `sw.js` in particular that is how a PWA update stops reaching installed
 clients, and it is the opposite of the win it looks like.
 
-**`no-cache` is not enough on its own.** The edge keeps serving what it has
-until something tells it to re-ask, so the workflow also invalidates
-`/app/piggy-tracking/*` on every deploy and waits for it to complete. A deploy
-that reaches S3 has not reached production. If a change is live in the bucket
-but not on the site, check `curl -sI` against the live URL for an `age:` and a
-`last-modified:` that disagree with `aws s3api head-object` — that is this
-failure, and it needs an invalidation, not another deploy.
+**An origin header is not enough on its own.** `vphatfla.me` sits behind
+**Cloudflare**, which keeps serving what it has until something tells it to
+re-ask. A deploy that reaches the box has not necessarily reached the
+browser. If a change is live on the origin but not on the site, compare
+`curl -sI` against the live URL — an `age:` or `last-modified:` that
+disagrees with the file on the box is this failure, and it needs a Cloudflare
+cache purge, not another deploy.
 
 ## Backend calls
 

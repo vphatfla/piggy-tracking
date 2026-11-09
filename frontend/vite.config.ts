@@ -3,9 +3,9 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
-// Production serves from vphatfla.me/app/piggy-tracking/ (see terraform/ —
-// piggy-tracking rides on oppy-marser's existing CloudFront distribution,
-// path-routed rather than its own domain/subdomain). Dev stays at `/`: only
+// Production serves from vphatfla.me/app/piggy-tracking/ (see the root
+// CLAUDE.md's Production section — nginx on the self-hosted box routes that
+// path prefix to this build). Dev stays at `/`: only
 // `vite build` (npm run build) needs the prefix, so `npm run dev` is
 // unaffected — asset URLs, the PWA scope, and start_url all derive from this
 // one constant rather than each hardcoding the path separately and risking
