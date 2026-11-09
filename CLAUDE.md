@@ -13,8 +13,8 @@ Area-specific guides load automatically when you touch those directories:
 frontend/            React 19 + Vite 8 SPA. Runs NATIVELY — never containerised.
 backend/             Express 5 + Prisma 7 API. Containerised.
   prisma/            schema.prisma, migrations/, seed.ts  ← the database lives here
-docker-compose.yml   Two services only: db + backend. Used in dev and, with the
-                     homelab-setup repo's overlay on top, in production too.
+docker-compose.yml   Two services only: db + backend. This is the dev stack;
+                     how production composes it lives in homelab-setup.
 .github/workflows/   CI only (ci.yml, every PR). There is no CD — deployment is
                      driven from the homelab-setup repo. See § Production below.
 docs/                Design records: the reasoning behind a decision, kept
@@ -76,14 +76,15 @@ PWA) and `https://vphatfla.me/api/*` (backend). Both are served by a
   to the built frontend's static files, `/api/*` to the backend container.
   The path prefix is why `frontend/vite.config.ts` sets `base` to
   `/app/piggy-tracking/` on `vite build`; the two must stay in sync by hand.
-- **Postgres runs in Docker on the same box**, on a host bind mount so the
-  data outlives the container.
+- **Postgres runs in Docker on the same box.** How its data is persisted is
+  the server's business, configured in `homelab-setup` — do not assume this
+  repo's `docker-compose.yml` volume is what production uses.
 - **`vphatfla.me` sits behind Cloudflare.** The edge therefore caches, which
   means a deploy reaching the box has not necessarily reached the browser —
   see `frontend/CLAUDE.md` § Cache headers before debugging a change that
   "didn't ship".
 
-**The nginx config, the production compose overlay, the real secrets, and the
+**The nginx config, the production compose setup, the real secrets, and the
 deploy procedure all live in the `homelab-setup` repo, not here.** This repo
 builds the two artifacts and nothing else:
 
