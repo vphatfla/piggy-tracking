@@ -54,6 +54,25 @@ Seed the example rows (once the stack is up):
 docker compose exec backend npm run seed
 ```
 
+## Deployment
+
+Production is a **self-hosted Docker server** at
+`https://vphatfla.me/app/piggy-tracking/` (frontend) and
+`https://vphatfla.me/api/*` (backend), with nginx routing those two path
+prefixes and Postgres in Docker on the same box.
+
+This repo builds the artifacts; it does not deploy them:
+
+```bash
+cd frontend && npm run build   # base is /app/piggy-tracking/ automatically
+docker build ./backend         # the backend image, built on the box
+```
+
+The nginx config, the production compose overlay, the real secrets, and the
+deploy procedure live in the **`homelab-setup`** repo. There is no CD
+workflow here — `.github/workflows/ci.yml` is the whole of CI, and a merge to
+main does not deploy anything.
+
 ## Endpoints
 
 | Method | Path                     | Auth | Notes                                              |

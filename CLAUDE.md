@@ -13,11 +13,10 @@ Area-specific guides load automatically when you touch those directories:
 frontend/            React 19 + Vite 8 SPA. Runs NATIVELY — never containerised.
 backend/             Express 5 + Prisma 7 API. Containerised.
   prisma/            schema.prisma, migrations/, seed.ts  ← the database lives here
-docker-compose.yml   Two services only: db + backend. Local dev only — see
-                     docker-compose.prod.yml for the production overlay.
-terraform/           Production infra — S3 + EC2/EBS/ECR. See § Production below.
-deploy/              remote-deploy.sh — runs on the EC2 box, not locally, not in CI.
-.github/workflows/   CI (every PR) + CD (build/push/deploy on merge to main).
+docker-compose.yml   Two services only: db + backend. Used in dev and, with the
+                     homelab-setup repo's overlay on top, in production too.
+.github/workflows/   CI only (ci.yml, every PR). There is no CD — deployment is
+                     driven from the homelab-setup repo. See § Production below.
 docs/                Design records: the reasoning behind a decision, kept
                      whether or not it is built yet.
 .env                 Gitignored. Copy from .env.example.
@@ -70,43 +69,50 @@ Never commit `.env`. When you add a key, add it to `.env.example` too.
 ## Production
 
 **Live** at `https://vphatfla.me/app/piggy-tracking/` (frontend, installable
-PWA) and `https://vphatfla.me/api/*` (backend). Not its own domain or
-CloudFront distribution — it rides **oppy-marser's** existing, live
-distribution (`~/workplace/oppy-marser`), routed by path. Both apps stay up
-independently; nothing here can take oppy-marser's own site down, and vice
-versa. Full reasoning for that choice, and the two Terraform states'
-cross-repo coupling (each reads the other's outputs via `terraform_remote_state`,
-neither writes to the other's state), is `terraform/README.md`.
+PWA) and `https://vphatfla.me/api/*` (backend). Both are served by a
+**self-hosted Docker server**, not a cloud provider:
 
-Infra is Terraform (`terraform/`, applied and live): an S3 bucket for the
-frontend build, an EC2 instance (`t4g.nano` — small on purpose, see
-`variables.tf`'s comment on the RAM/cost trade-off and the swap file that
-covers it) running the backend + Postgres via `docker-compose.yml` +
-`docker-compose.prod.yml`, on a dedicated EBS volume. **No SSH, no key
-pair** — access is `aws ssm start-session --target <instance-id>` only.
-Current run-rate is ~$9.91/month; see `terraform/README.md` if that ever
-needs revisiting.
+- **nginx on that box** terminates the two path prefixes — `/app/piggy-tracking/*`
+  to the built frontend's static files, `/api/*` to the backend container.
+  The path prefix is why `frontend/vite.config.ts` sets `base` to
+  `/app/piggy-tracking/` on `vite build`; the two must stay in sync by hand.
+- **Postgres runs in Docker on the same box**, on a host bind mount so the
+  data outlives the container.
+- **`vphatfla.me` sits behind Cloudflare.** The edge therefore caches, which
+  means a deploy reaching the box has not necessarily reached the browser —
+  see `frontend/CLAUDE.md` § Cache headers before debugging a change that
+  "didn't ship".
 
-**Deploying**: the backend image builds and pushes to ECR, then
-`deploy/remote-deploy.sh` runs *on the box* (triggered via `aws ssm
-send-command`, not SSH) — it fetches secrets from SSM Parameter Store
-(`/piggy-tracking/prod/*`, never through GitHub Actions or the SSM command
-payload itself) and does `docker compose pull && up -d --no-build`. The
-frontend syncs to the S3 bucket with per-path cache headers — **immutable
-only for content-hashed filenames** (`assets/*`, `workbox-*.js`), `no-cache`
-for everything else including `index.html` — then **invalidates CloudFront and
-waits**, because a deploy that reaches S3 has not reached production. Both
-halves are load-bearing and both have failed in production; see
-`frontend/CLAUDE.md` § Cache headers.
+**The nginx config, the production compose overlay, the real secrets, and the
+deploy procedure all live in the `homelab-setup` repo, not here.** This repo
+builds the two artifacts and nothing else:
 
-The GitHub Actions workflows in `.github/workflows/` run all of this on merge
-to main, path-filtered. That includes **`terraform-deploy.yml`, which applies
-unattended** — so a change under `terraform/` is applied by merging it, with
-nobody reading the plan. Two `lifecycle` blocks in `main.tf` are what make
-that survivable: `ignore_changes = [ami]` on the instance and
-`prevent_destroy = true` on the Postgres volume. Without them an upstream
-AL2023 release replaces the instance, the volume follows its AZ, and the
-database is gone. Read `terraform/README.md` before removing either.
+```bash
+cd frontend && npm run build          # base is /app/piggy-tracking/ automatically
+docker build ./backend                # the backend image, built on the box
+```
+
+Deliberately *not* in this repo any more: there is no CD workflow, no
+registry push, and no infrastructure-as-code. A merge to main runs `ci.yml`
+and stops there. Deploying is a step taken from `homelab-setup`.
+
+### History: this ran on AWS until November 2026
+
+Until 2026-11, the frontend was an S3 bucket behind oppy-marser's CloudFront
+distribution and the backend was a `t4g.nano` EC2 instance with a dedicated
+EBS volume for Postgres, all provisioned by a `terraform/` directory in this
+repo and deployed by three GitHub Actions workflows through ECR and SSM. All
+of it is gone — the code, the workflows, and the AWS resources. Two traps
+from that era are still worth knowing because they are about *this app*, not
+about AWS:
+
+- **The `/app/piggy-tracking` path prefix with no trailing slash is a real URL
+  people type**, and a wildcard route for `/app/piggy-tracking/*` does not
+  match it. It silently fell through to the other site's default route for a
+  while. Whatever serves this app needs both.
+- **Cache headers follow the filename, not a list of exceptions**, and the
+  prune of superseded assets happens after the switchover, never before it.
+  `frontend/CLAUDE.md` § Cache headers has the full account.
 
 ## The product shape
 
@@ -235,7 +241,7 @@ change** that makes them stale, not afterwards:
 | a settled product decision, or a milestone shipped | this file's Product shape / Where this is going |
 | anything about budgets — the model, inheritance, the routes | `docs/budgets.md` |
 | anything about income — the model, forward-only edits, the routes | `docs/income.md` |
-| infra: instance size, volumes, IAM, the oppy-marser coupling, deploy mechanism | this file's Production section + `terraform/README.md` |
+| how production is served or deployed | this file's Production section — and the `homelab-setup` repo, which owns the nginx/compose/secrets half |
 
 Record the *why* and the traps — version quirks, non-obvious constraints,
 decisions that look wrong but aren't. Do not restate what the code already says;
