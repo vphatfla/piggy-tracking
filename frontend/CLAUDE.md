@@ -227,11 +227,11 @@ and `devOptions.enabled` (so the service worker is live in dev too).
 `no-cache`), service worker registered with the right scope, both required
 icon sizes present, served over HTTPS. Installs from Safari's Share sheet
 (iOS) or Chrome's Install-app prompt (Android); see root `CLAUDE.md`'s
-Production section for the URL.
+Production section for how it's served.
 
 - **`base` is conditional on `command`, not a fixed value** — production
   (`vite build`) serves from `/app/piggy-tracking/` (see root `CLAUDE.md`'s
-  Production section for why: nginx on the self-hosted box routes that path
+  Production section for why: the production reverse proxy routes that path
   prefix to this build, it is not its own domain), dev stays at `/`. The manifest's
   `start_url` and `scope` are both derived from that same `base` constant
   rather than hardcoded, so they can't drift from it independently.
@@ -247,10 +247,10 @@ Production section for the URL.
 
 ### Cache headers: the rule is the filename
 
-The build is served by **nginx on the self-hosted box** — its config lives in
-the `homelab-setup` repo, not here. This section is the rule that config has
-to keep, because it was learned the hard way in production and the knowledge
-does not live in the file that implements it.
+The build is served by a **reverse proxy on the production host** — its
+config lives in a separate ops repo, not here. This section is the rule that
+config has to keep, because it was learned the hard way in production and
+the knowledge does not live in the file that implements it.
 
 The rule is **is this filename content-hashed?** — not a list of exceptions:
 
@@ -273,13 +273,13 @@ Don't relax any of the `no-cache` paths to a long TTL "for performance" — for
 `sw.js` in particular that is how a PWA update stops reaching installed
 clients, and it is the opposite of the win it looks like.
 
-**An origin header is not enough on its own.** `vphatfla.me` sits behind
-**Cloudflare**, which keeps serving what it has until something tells it to
-re-ask. A deploy that reaches the box has not necessarily reached the
-browser. If a change is live on the origin but not on the site, compare
-`curl -sI` against the live URL — an `age:` or `last-modified:` that
-disagrees with the file on the box is this failure, and it needs a Cloudflare
-cache purge, not another deploy.
+**An origin header is not enough on its own.** Production sits behind a
+**CDN**, which keeps serving what it has until something tells it to re-ask.
+A deploy that reaches the origin has not necessarily reached the browser. If
+a change is live on the origin but not on the site, compare `curl -sI`
+against the live URL — an `age:` or `last-modified:` that disagrees with the
+file on the origin is this failure, and it needs a CDN cache purge, not
+another deploy.
 
 ## Backend calls
 

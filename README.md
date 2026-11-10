@@ -56,20 +56,18 @@ docker compose exec backend npm run seed
 
 ## Deployment
 
-Production is a **self-hosted Docker server** at
-`https://vphatfla.me/app/piggy-tracking/` (frontend) and
-`https://vphatfla.me/api/*` (backend), with nginx routing those two path
-prefixes and Postgres in Docker on the same box.
+Production is deployed outside this repo, with the frontend and backend
+served under `/app/piggy-tracking/*` and `/api/*` respectively.
 
 This repo builds the artifacts; it does not deploy them:
 
 ```bash
 cd frontend && npm run build   # base is /app/piggy-tracking/ automatically
-docker build ./backend         # the backend image, built on the box
+docker build ./backend         # the backend image
 ```
 
-The nginx config, the production compose overlay, the real secrets, and the
-deploy procedure live in the **`homelab-setup`** repo. There is no CD
+The reverse-proxy config, the production compose overlay, the real secrets,
+and the deploy procedure live in a separate ops repo. There is no CD
 workflow here — `.github/workflows/ci.yml` is the whole of CI, and a merge to
 main does not deploy anything.
 
@@ -98,6 +96,14 @@ main does not deploy anything.
 | GET    | `/api/budgets/exists`    | bearer | `{ exists: boolean }` — has this user ever set a budget, at all |
 | PUT    | `/api/budgets`           | bearer | `{ categoryId, month, amount }` — upserts one month's limit |
 | DELETE | `/api/budgets/:categoryId` | bearer | `?month=YYYY-MM`. `204`. Removes that month's row only |
+| GET    | `/api/shares/me`         | bearer | The caller's active share, or `null`                  |
+| POST   | `/api/shares`            | bearer | `{ partnerEmail }` — creates an active share immediately; `409` if either side is already in one |
+| PATCH  | `/api/shares/:id`        | bearer | `{ budgetOwnerUserId }` — picks which member's categories/budgets are canonical |
+| DELETE | `/api/shares/:id`        | bearer | `204`. Revokes the share; no rows migrate back        |
+| GET    | `/api/incomes`           | bearer | `?month=YYYY-MM` (required) — income effective that month, for the caller and any share partner |
+| POST   | `/api/incomes`           | bearer | `{ source, amount, type: "ONE_TIME"\|"RECURRING", month }` |
+| PATCH  | `/api/incomes/:id`       | bearer | `{ source? }` in place, or `{ amount, effectiveMonth }` to forward-edit a `RECURRING` row |
+| DELETE | `/api/incomes/:id`       | bearer | `204`. Owner only — a share partner can see but not delete |
 
 "bearer" means `Authorization: Bearer <access token>`; "cookie" means the
 httpOnly `refreshToken` cookie, which browsers only send when the request is made
@@ -197,7 +203,7 @@ be signed in as; its `googleId` is a made-up string, not a real Google `sub`.
 
 ## Data model
 
-Six tables. Three come from the `replace_note_with_core_models` migration:
+Eight tables. Three come from the `replace_note_with_core_models` migration:
 
 - **User** — Google OAuth only, so no password column; `email` and `googleId`
   are both unique.
@@ -228,10 +234,20 @@ Six tables. Three come from the `replace_note_with_core_models` migration:
   migration). Stores `sha256(token)`, never the token. Deleting the user
   cascades, so removing an account ends every session.
 
+- **Share** — pairwise household sharing: its existence is the active state,
+  there is no pending/accepted status. `budgetOwnerUserId` names whichever
+  member's categories and budgets are canonical for both. A user may have at
+  most one active share. See `backend/CLAUDE.md`.
+
+- **Income** — a user's income, one-time or recurring. Visible to a share
+  partner but never merged into theirs or editable by them — the opposite
+  call from Budget. A `RECURRING` row's amount edit is forward-only. See
+  `docs/income.md`.
+
 Indexed on `Receipt.userId`, `Transaction.userId`, `Transaction.receiptId`,
 `Transaction.categoryId`, `Category.userId`, `RefreshToken.userId`,
-`Budget.(userId, month)`, and `Transaction.(userId, date)` — the composites are
-for month/range queries.
+`Budget.(userId, month)`, `Income.(userId, month)`, and `Transaction.(userId,
+date)` — the composites are for month/range queries.
 
 ## Backend
 

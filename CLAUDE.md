@@ -13,10 +13,10 @@ Area-specific guides load automatically when you touch those directories:
 frontend/            React 19 + Vite 8 SPA. Runs NATIVELY — never containerised.
 backend/             Express 5 + Prisma 7 API. Containerised.
   prisma/            schema.prisma, migrations/, seed.ts  ← the database lives here
-docker-compose.yml   Two services only: db + backend. Used in dev and, with the
-                     homelab-setup repo's overlay on top, in production too.
+docker-compose.yml   Two services only: db + backend. Used in dev and, with a
+                     separate ops repo's overlay on top, in production too.
 .github/workflows/   CI only (ci.yml, every PR). There is no CD — deployment is
-                     driven from the homelab-setup repo. See § Production below.
+                     driven from outside this repo. See § Production below.
 docs/                Design records: the reasoning behind a decision, kept
                      whether or not it is built yet.
 .env                 Gitignored. Copy from .env.example.
@@ -68,51 +68,42 @@ Never commit `.env`. When you add a key, add it to `.env.example` too.
 
 ## Production
 
-**Live** at `https://vphatfla.me/app/piggy-tracking/` (frontend, installable
-PWA) and `https://vphatfla.me/api/*` (backend). Both are served by a
-**self-hosted Docker server**, not a cloud provider:
+The frontend (installable PWA) and the backend are deployed to infrastructure
+outside this repo, served under the paths `/app/piggy-tracking/*` (frontend)
+and `/api/*` (backend) on a production host this repo does not own or track.
 
-- **nginx on that box** terminates the two path prefixes — `/app/piggy-tracking/*`
-  to the built frontend's static files, `/api/*` to the backend container.
-  The path prefix is why `frontend/vite.config.ts` sets `base` to
-  `/app/piggy-tracking/` on `vite build`; the two must stay in sync by hand.
-- **Postgres runs in Docker on the same box**, on a host bind mount so the
-  data outlives the container.
-- **`vphatfla.me` sits behind Cloudflare.** The edge therefore caches, which
-  means a deploy reaching the box has not necessarily reached the browser —
-  see `frontend/CLAUDE.md` § Cache headers before debugging a change that
-  "didn't ship".
-
-**The nginx config, the production compose overlay, the real secrets, and the
-deploy procedure all live in the `homelab-setup` repo, not here.** This repo
-builds the two artifacts and nothing else:
+**The reverse-proxy config, the production compose overlay, the real secrets,
+and the deploy procedure all live in a separate ops repo, not here.** This
+repo builds the two artifacts and nothing else:
 
 ```bash
 cd frontend && npm run build          # base is /app/piggy-tracking/ automatically
-docker build ./backend                # the backend image, built on the box
+docker build ./backend                # the backend image
 ```
+
+Two facts worth knowing regardless of where it runs:
+
+- **The path prefix is why `frontend/vite.config.ts` sets `base` to
+  `/app/piggy-tracking/` on `vite build`**; the two must stay in sync by hand.
+  `/app/piggy-tracking` with no trailing slash is a real URL people type, and
+  a wildcard route for `/app/piggy-tracking/*` alone does not match it —
+  whatever serves this app needs both.
+- **Production sits behind a CDN that caches.** A deploy reaching the host has
+  not necessarily reached the browser — see `frontend/CLAUDE.md` § Cache
+  headers before debugging a change that "didn't ship".
 
 Deliberately *not* in this repo any more: there is no CD workflow, no
 registry push, and no infrastructure-as-code. A merge to main runs `ci.yml`
-and stops there. Deploying is a step taken from `homelab-setup`.
+and stops there. Deploying is a step taken from the ops repo.
 
 ### History: this ran on AWS until November 2026
 
-Until 2026-11, the frontend was an S3 bucket behind oppy-marser's CloudFront
-distribution and the backend was a `t4g.nano` EC2 instance with a dedicated
-EBS volume for Postgres, all provisioned by a `terraform/` directory in this
-repo and deployed by three GitHub Actions workflows through ECR and SSM. All
-of it is gone — the code, the workflows, and the AWS resources. Two traps
-from that era are still worth knowing because they are about *this app*, not
-about AWS:
-
-- **The `/app/piggy-tracking` path prefix with no trailing slash is a real URL
-  people type**, and a wildcard route for `/app/piggy-tracking/*` does not
-  match it. It silently fell through to the other site's default route for a
-  while. Whatever serves this app needs both.
-- **Cache headers follow the filename, not a list of exceptions**, and the
-  prune of superseded assets happens after the switchover, never before it.
-  `frontend/CLAUDE.md` § Cache headers has the full account.
+Until 2026-11, the frontend was an S3 bucket behind a CloudFront distribution
+and the backend was a `t4g.nano` EC2 instance with a dedicated EBS volume for
+Postgres, all provisioned by a `terraform/` directory in this repo and
+deployed by three GitHub Actions workflows through ECR and SSM. All of it is
+gone — the code, the workflows, and the AWS resources. The two traps above
+are carried over from that era; they are about *this app*, not about AWS.
 
 ## The product shape
 
@@ -241,7 +232,7 @@ change** that makes them stale, not afterwards:
 | a settled product decision, or a milestone shipped | this file's Product shape / Where this is going |
 | anything about budgets — the model, inheritance, the routes | `docs/budgets.md` |
 | anything about income — the model, forward-only edits, the routes | `docs/income.md` |
-| how production is served or deployed | this file's Production section — and the `homelab-setup` repo, which owns the nginx/compose/secrets half |
+| how production is served or deployed | this file's Production section — and the ops repo, which owns the reverse-proxy/compose/secrets half |
 
 Record the *why* and the traps — version quirks, non-obvious constraints,
 decisions that look wrong but aren't. Do not restate what the code already says;
