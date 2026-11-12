@@ -3,6 +3,7 @@ import { deleteTransaction, updateTransaction, type Category, type Transaction }
 import { cents } from '../format'
 import { inputClasses } from '../ui'
 import { CategorySelect } from './CategorySelect'
+import { MoneyInput } from './MoneyInput'
 
 /** The expanded editor. Rendered only while open, so mounting is what
  *  initialises the drafts from the transaction — which means Cancel, and
@@ -112,11 +113,10 @@ export function EditPanel({
           aria-label="Date"
           className={`${inputClasses} flex-1`}
         />
-        <input
+        <MoneyInput
           value={amount}
-          onChange={(e) => setAmount(e.target.value)}
+          onChange={setAmount}
           aria-label="Amount"
-          inputMode="decimal"
           className={`${inputClasses} w-24 text-right tabular-nums`}
         />
       </div>

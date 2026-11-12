@@ -4,6 +4,7 @@ import { cents } from '../format'
 import { addMonths, formatMonthLabel } from '../month'
 import { inputClasses } from '../ui'
 import { MinusCircleIcon } from './icons'
+import { MoneyInput } from './MoneyInput'
 import { Sheet } from './Sheet'
 
 /** A changed field with something to fall back to — the only case where
@@ -173,11 +174,10 @@ export function BudgetEditor({
               aria-label={`Name of ${c.name}`}
               className={`${inputClasses} flex-1`}
             />
-            <input
+            <MoneyInput
               value={drafts[c.id] ?? ''}
-              onChange={(e) => setDrafts((d) => ({ ...d, [c.id]: e.target.value }))}
+              onChange={(v) => setDrafts((d) => ({ ...d, [c.id]: v }))}
               placeholder="No limit"
-              inputMode="decimal"
               aria-label={`Limit for ${c.name}`}
               className={`${inputClasses} w-28 shrink-0 text-right tabular-nums`}
             />

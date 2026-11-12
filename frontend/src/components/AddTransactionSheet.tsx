@@ -4,6 +4,7 @@ import type { AddStatus } from '../hooks/useDashboard'
 import { inputClasses } from '../ui'
 import { CategorySelect } from './CategorySelect'
 import { CheckIcon, CloseIcon } from './icons'
+import { MoneyInput } from './MoneyInput'
 import { Sheet } from './Sheet'
 
 /** The manual-entry form, in `Sheet` chrome rather than appended after the
@@ -93,12 +94,11 @@ export function AddTransactionSheet({
             aria-label="Date"
             className={`${inputClasses} flex-1`}
           />
-          <input
+          <MoneyInput
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={setAmount}
             placeholder="0.00"
             aria-label="Amount"
-            inputMode="decimal"
             className={`${inputClasses} w-24 text-right tabular-nums`}
           />
           {/* The button is the confirmation, which is the Apple idiom — no

@@ -3,6 +3,7 @@ import type { Income } from '../api'
 import { cents, formatMoney } from '../format'
 import { inputClasses } from '../ui'
 import { ChevronDown } from './icons'
+import { MoneyInput } from './MoneyInput'
 
 /** One income row: tap-to-expand, same idiom as TransactionRow. A RECURRING
  *  amount edit asks for the month it takes effect from — defaulting to the
@@ -113,11 +114,10 @@ export function IncomeRow({
             className={`${inputClasses} w-full`}
           />
           <div className="flex items-center gap-2">
-            <input
+            <MoneyInput
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={setAmount}
               aria-label="Amount"
-              inputMode="decimal"
               className={`${inputClasses} flex-1 tabular-nums`}
             />
             {income.type === 'RECURRING' && (
