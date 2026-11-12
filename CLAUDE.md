@@ -138,7 +138,18 @@ spent-vs-limit breakdown, household sharing (pairwise, transactions pooled
 and jointly editable, categories/budgets canonical-merged — see the `Share`
 model and `src/sharing.ts`), and income tracking — one-time or recurring,
 visible to a share partner but never merged or partner-editable (the
-opposite call from budgets; see `docs/income.md`).
+opposite call from budgets; see `docs/income.md`), and merchant autocomplete in
+the add form — suggestions drawn from the pooled history, where accepting one
+also files the entry under the category that merchant was last filed under.
+
+That last rule is why the add form's category state carries a
+`source: 'user' | 'merchant'` next to the id rather than a separate "touched"
+flag: a deliberate pick has to outrank a merchant's guess, and once a successful
+add has re-seeded the field nothing else in the form can tell the two apart.
+A successful add keeps the id and downgrades only its `source`, which is what
+lets the category stay sticky between entries while still improving on itself.
+This does **not** close item 1 below: the endpoint groups by merchant, not by
+category, and the dashboard still totals spending client-side.
 
 The two roadmap milestones were built in the other order, and that is worth
 knowing: **budgets landed first, and the breakdown came with them** — the

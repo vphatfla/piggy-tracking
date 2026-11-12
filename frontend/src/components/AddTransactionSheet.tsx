@@ -1,9 +1,10 @@
 import type { RefObject } from 'react'
-import type { Category } from '../api'
+import type { Category, Merchant } from '../api'
 import type { AddStatus } from '../hooks/useDashboard'
 import { inputClasses } from '../ui'
 import { CategorySelect } from './CategorySelect'
 import { CheckIcon, CloseIcon } from './icons'
+import { MerchantInput } from './MerchantInput'
 import { MoneyInput } from './MoneyInput'
 import { Sheet } from './Sheet'
 
@@ -23,6 +24,8 @@ export function AddTransactionSheet({
   merchantInputRef,
   merchant,
   setMerchant,
+  merchants,
+  onAcceptMerchant,
   amount,
   setAmount,
   date,
@@ -39,6 +42,8 @@ export function AddTransactionSheet({
   merchantInputRef: RefObject<HTMLInputElement | null>
   merchant: string
   setMerchant: (v: string) => void
+  merchants: Merchant[]
+  onAcceptMerchant: (m: Merchant) => void
   amount: string
   setAmount: (v: string) => void
   date: string
@@ -72,13 +77,13 @@ export function AddTransactionSheet({
             <CloseIcon />
           </button>
         </div>
-        <input
-          ref={merchantInputRef}
+        <MerchantInput
+          inputRef={merchantInputRef}
           value={merchant}
-          onChange={(e) => setMerchant(e.target.value)}
-          placeholder="Merchant"
-          aria-label="Merchant"
-          className={`${inputClasses} w-full`}
+          onChange={setMerchant}
+          onAccept={onAcceptMerchant}
+          merchants={merchants}
+          categories={categories}
         />
         <CategorySelect
           categories={categories}

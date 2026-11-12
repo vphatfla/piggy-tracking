@@ -69,6 +69,15 @@ export type Transaction = {
   createdAt: string
 }
 
+/** A distinct merchant name out of the pooled history, carrying the category
+ *  it was last filed under — what the add form's autocomplete runs on.
+ *  `merchantName` is the most recent spelling: the column is trimmed but never
+ *  case-folded, so "Costco" and "costco" collapse to whichever was typed last. */
+export type Merchant = {
+  merchantName: string
+  categoryId: number | null
+}
+
 /** A household sharing relationship. Its existence *is* the active state —
  *  there is no pending/accepted status yet, since the invite mechanism isn't
  *  built. `budgetOwnerUserId` names whichever member's categories/budgets are
@@ -284,6 +293,13 @@ export const updateTransaction = (
 /** 204, no body. Hard delete: there is no trash to restore from. */
 export const deleteTransaction = (token: string, id: number) =>
   requestVoid(`/api/transactions/${id}`, { method: 'DELETE' }, token)
+
+/** Every merchant ever used, with the category it was last filed under — the
+ *  whole list, fetched once, filtered on the client. `categoryId` can name a
+ *  category this user cannot see (a share whose budget owner changed) or one
+ *  since deleted, so check it against `categories` before selecting it. */
+export const getMerchants = (token: string) =>
+  request<Merchant[]>('/api/transactions/merchants', {}, token)
 
 export const getCategories = (token: string) => request<Category[]>('/api/categories', {}, token)
 

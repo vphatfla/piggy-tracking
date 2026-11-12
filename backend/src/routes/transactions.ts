@@ -57,6 +57,54 @@ transactionsRouter.get('/', async (req, res, next) => {
   }
 })
 
+// GET /api/transactions/merchants
+//
+// Every merchant the share has ever used, with the category it was last filed
+// under — the add form's autocomplete. The whole history, with no ?q= filter:
+// this is one row per distinct name, fetched once per session, and filtering
+// it on the client is instant where a round trip per keystroke is not.
+//
+// Folded in JS rather than a GROUP BY, for the reason spelled out in
+// budgets.ts: the greatest-per-group is a Postgres DISTINCT ON, which Prisma's
+// `distinct` is not. No index on merchantName is needed because nothing
+// filters on it — the predicate is userId, which @@index([userId]) covers.
+//
+// Declared above POST and below GET '/'. There is no GET '/:id' today; if one
+// is ever added it must go *below* this, or parseIdParam would 400 on
+// "merchants" rather than let it fall through.
+transactionsRouter.get('/merchants', async (req, res, next) => {
+  try {
+    const rows = await prisma.transaction.findMany({
+      where: { userId: { in: await visibleUserIds(authedUserId(req)) } },
+      // Ascending, so a later row for the same merchant overwrites the earlier
+      // one below and the last write wins — for the spelling as well as the
+      // category, since merchantName is stored trimmed but never case-folded.
+      orderBy: [{ date: 'asc' }, { id: 'asc' }],
+      select: { merchantName: true, categoryId: true },
+    })
+
+    const latest = new Map<string, { merchantName: string; categoryId: number | null }>()
+    for (const row of rows) {
+      const key = row.merchantName.toLowerCase()
+      const prev = latest.get(key)
+      latest.set(key, {
+        merchantName: row.merchantName,
+        // A null here means the category was deleted — POST requires one — not
+        // that the user filed it as nothing. So it must not erase what this
+        // merchant is known to be: otherwise deleting one category would
+        // permanently blank out a merchant with years of history behind it.
+        categoryId: row.categoryId ?? prev?.categoryId ?? null,
+      })
+    }
+
+    // No serializer: nothing on this response is a Decimal or a Date, the same
+    // exemption GET /api/budgets takes.
+    res.json([...latest.values()].sort((a, b) => a.merchantName.localeCompare(b.merchantName)))
+  } catch (err) {
+    next(err)
+  }
+})
+
 // POST /api/transactions
 transactionsRouter.post('/', async (req, res, next) => {
   try {

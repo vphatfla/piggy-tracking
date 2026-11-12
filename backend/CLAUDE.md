@@ -213,6 +213,28 @@ bounds, whereas two endpoints computing the same window would drift.
 object, so query params validate through the same path as bodies, and a repeated
 `?from=a&from=b` arrives as an array and fails its `typeof` check.
 
+`GET /api/transactions/merchants` returns `[{ merchantName, categoryId }]` —
+one row per distinct merchant in the pooled history, carrying the category it
+was **last** filed under, for the add form's autocomplete. Three things about it
+are deliberate and easy to break:
+
+- **The whole list, with no `?q=` filter.** It is one row per distinct name and
+  the client fetches it once per session, so filtering on the client is instant
+  where a round trip per keystroke is not.
+- **Grouped in JS, not in SQL** — the same reasoning `GET /api/budgets` records:
+  greatest-per-group is a Postgres `DISTINCT ON`, which Prisma's `distinct` is
+  not. It needs no index on `merchantName` either, because nothing filters on
+  that column; the predicate is `userId`. Revisit when the row count stops being
+  one household's spending history.
+- **A NULL `categoryId` does not overwrite an earlier non-NULL one.** NULL means
+  the category was deleted — `POST` requires one — so plain last-write-wins
+  would let deleting a single category permanently blank out a merchant with
+  years of good history behind it.
+
+It is declared **above `POST '/'` and below `GET '/'`**. There is no
+`GET '/:id'` today; if one is added it must go *below* this route, or
+`parseIdParam` would 400 on `"merchants"` rather than let it fall through.
+
 **`PATCH` and `DELETE /api/categories/:id`** follow the same `updateMany` /
 `deleteMany`-with-`userId` rule as the transactions routes, and `PATCH` rejects
 a name that already belongs to another of the caller's categories, **compared
