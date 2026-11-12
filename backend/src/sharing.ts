@@ -1,7 +1,21 @@
 import { prisma } from './prisma.ts'
 
+/** "Any of these users is in an active share." Written as the predicate rather
+ *  than as a query so the same clause runs against the plain client and inside
+ *  a transaction without threading a client type through. Covered by
+ *  `@@index([initiatorId])` and `@@index([partnerId])`.
+ *
+ *  This is the one-active-share-per-user rule, and it spans two columns, so no
+ *  unique index can express it — which is why it is a read, and why the redeem
+ *  path has to take a lock around it rather than trusting the read alone. See
+ *  `POST /api/shares`. */
+export const activeShareWhere = (userIds: number[]) => ({
+  revokedAt: null,
+  OR: userIds.flatMap((id) => [{ initiatorId: id }, { partnerId: id }]),
+})
+
 /** The caller's active share, or null. A row's mere existence means
- *  "active" — there is no pending/accepted status yet, see schema.prisma. */
+ *  "active" — the pending state lives in `Invite`, see schema.prisma. */
 async function activeShare(userId: number) {
   return prisma.share.findFirst({
     where: { revokedAt: null, OR: [{ initiatorId: userId }, { partnerId: userId }] },

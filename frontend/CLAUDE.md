@@ -585,8 +585,22 @@ over" line already says how far.
 
 The header's top-right corner is a single 44×44 initials avatar
 (`AccountMenu`), replacing what used to be a bare name-text-plus-"Sign out"
-button. It opens a popover that does three jobs: identity, appearance, and
-sign-out.
+button. It opens a popover that does four jobs: identity, appearance, Share,
+and sign-out.
+
+**Share is the one row that opens a screen**, `SharePage` — a full-screen
+`Sheet`, not a route, since there is no router here. It holds the whole story
+of sharing in one place: with an active share, who it is with, whose budgets
+are canonical, and a way to leave; without one, both halves of starting one —
+generate an 8-digit code to hand over, or enter a code somebody handed you.
+Redeeming is what creates the share.
+
+Two things in there are deliberate and will look like oversights. The code's
+expiry renders as an **absolute wall-clock time, never a countdown** — `Sheet`
+stays mounted while closed, so a countdown needs a timer and would still be
+read stale. And the invite is **refetched when the sheet opens** rather than
+once per session like every other resource in `useDashboard`, because it is
+the only thing in the app that dies on a clock. `docs/sharing.md` has the rest.
 
 **"Account setting" is a read-only header inside the popover, not a screen.**
 There is no router in this app — same reason the transaction edit panel is an

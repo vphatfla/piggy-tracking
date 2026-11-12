@@ -33,6 +33,10 @@ model User {
   shareInitiations       Share[] @relation("ShareInitiator")
   sharePartnerships      Share[] @relation("SharePartner")
   shareBudgetOwnerships  Share[] @relation("ShareBudgetOwner")
+
+  /// Optional and singular: Invite.creatorId is unique, so a user holds at
+  /// most one live code at a time.
+  invite Invite?
 }
 
 /// A scanned/uploaded receipt. Deleting the owning user removes their receipts.
@@ -174,8 +178,13 @@ model Income {
 }
 
 /// Pairwise sharing between two household members. Its existence *is* the
-/// active state — there is no pending/accepted status, since the invite
-/// mechanism is deliberately not built yet: a row means the share is live.
+/// active state — there is no pending/accepted status, because the pending
+/// state lives in `Invite` instead: a Share row is only ever created by
+/// redeeming a code, so a row means both people agreed and the share is live.
+/// Keeping the two apart is deliberate — a `status` column here would mean
+/// every caller of `visibleUserIds`/`effectiveBudgetOwnerId` had a third state
+/// to remember to check, and missing one would pool data on an invite nobody
+/// had accepted.
 /// Sharing changes what a query returns (which transactions are visible,
 /// whose categories/budgets are canonical), never who owns a row — no data
 /// is migrated when a Share is created or revoked.
@@ -204,6 +213,39 @@ model Share {
 
   @@index([initiatorId])
   @@index([partnerId])
+}
+
+/// A short-lived code one user generates and passes to the other out-of-band
+/// (text, in person). Redeeming it is what creates the Share, and redeeming is
+/// the consent — before this existed, one user could pool another's entire
+/// financial history by typing their email, with nobody asked.
+///
+/// The code is stored in **plaintext**, unlike RefreshToken's SHA-256 hash,
+/// because the sender has to be able to reopen the Share screen and read it
+/// again; a hash could only ever be shown once. The cost is that a database
+/// leak exposes live codes — bounded by the one-hour expiry, and each code
+/// buys exactly one household. Never log one.
+///
+/// Dead invites are **hard-deleted, not soft-revoked** — the opposite of Share
+/// and RefreshToken, whose `revokedAt` exists to keep history. There is no
+/// history worth keeping here: the Share row a redemption produces already
+/// carries both user ids and a `createdAt`. Expired rows are collected lazily
+/// on the next create, which is the whole garbage collector.
+///
+/// `creatorId` is unique, so "at most one live code per user" is a database
+/// constraint rather than an application check — note the contrast with
+/// Share's one-active-share rule, which spans two columns and therefore
+/// cannot be (see src/sharing.ts).
+model Invite {
+  id Int @id @default(autoincrement())
+  /// Eight digits as a *string*: leading zeros are significant, and an integer
+  /// column would eat them. VarChar(8) for a fixed width, as Budget.month is.
+  code      String   @unique @db.VarChar(8)
+  creatorId Int      @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  creator User @relation(fields: [creatorId], references: [id], onDelete: Cascade)
 }
 
 /// A refresh-token handle for one browser session. The raw token is only ever

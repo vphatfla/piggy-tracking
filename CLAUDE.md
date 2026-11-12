@@ -52,7 +52,8 @@ host-run commands. There is no `backend/.env`. Keys: `POSTGRES_USER`,
 `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`, `BACKEND_PORT`,
 `CORS_ORIGIN`, `DATABASE_URL`, plus the auth block: `GOOGLE_CLIENT_ID`,
 `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `ACCESS_TOKEN_EXPIRY`,
-`REFRESH_TOKEN_EXPIRY_DAYS`.
+`REFRESH_TOKEN_EXPIRY_DAYS`, and `INVITE_EXPIRY_MINUTES` for household
+sharing (a security parameter — see `docs/sharing.md`).
 
 The frontend has its own `frontend/.env.local` (template: `frontend/.env.example`)
 for `VITE_API_URL` and `VITE_GOOGLE_CLIENT_ID`. **`VITE_GOOGLE_CLIENT_ID` and the
@@ -151,6 +152,19 @@ lets the category stay sticky between entries while still improving on itself.
 This does **not** close item 1 below: the endpoint groups by merchant, not by
 category, and the dashboard still totals spending client-side.
 
+Sharing now has a **real consent step**. A share is created one way only: one
+user generates an 8-digit code (`Invite`, one live code per user, one hour),
+passes it over out-of-band, and the other redeems it — redeeming *is* the
+consent. The `{ partnerEmail }` endpoint that used to create a live share on
+the spot is gone; it asked nobody, and 404ing on an unknown address made it an
+email-enumeration oracle. The pending state lives in `Invite` rather than as a
+`status` on `Share`, which is what keeps `visibleUserIds` and
+`effectiveBudgetOwnerId` free of a third state to check. There is deliberately
+no way to refresh a live code — only to remove it — because a code already
+handed to someone must not stop working when its sender reopens the screen.
+`docs/sharing.md` carries the arithmetic behind the code length and the
+rate limiter, and the locking argument; read it before changing either.
+
 The two roadmap milestones were built in the other order, and that is worth
 knowing: **budgets landed first, and the breakdown came with them** — the
 dashboard already holds one month of transactions, so grouping them by category
@@ -172,11 +186,6 @@ What is left:
    `docs/budgets.md` first — the obvious implementation silently enforces
    nothing. Income (below) is a spending-vs-income comparison, not a cap —
    the gap this item describes is still open.
-3. **A real invite mechanism for sharing.** `POST /api/shares` creates an
-   active share immediately; there is no pending/accepted state, and the
-   frontend's "Invite" affordance is a deliberate no-op. See the `Share`
-   model's doc-comment in `schema.prisma`.
-
 ## Auth
 
 Google OAuth with rotating refresh tokens. The shape, in one paragraph so nobody

@@ -49,7 +49,7 @@ recall are for the old layout and will be wrong here.
 
 ## Data model
 
-Eight models. See `prisma/schema.prisma` for the authoritative definition.
+Nine models. See `prisma/schema.prisma` for the authoritative definition.
 
 - **User** — Google OAuth is the only auth method, so there is **no password
   column**; `googleId` holds the Google `sub` claim. `email` and `googleId` are
@@ -129,14 +129,40 @@ Eight models. See `prisma/schema.prisma` for the authoritative definition.
   (revert a category's very first-ever budget, since there's no earlier value
   to write back).
 
-- **Share** — pairwise household sharing; its existence *is* the active state,
-  there is no pending/accepted status. `budgetOwnerUserId` names whichever
-  member's Category/Budget rows are canonical for both. A user may have at
-  most one active (`revokedAt IS NULL`) share, enforced in the application
+- **Share** — pairwise household sharing; its existence *is* the active state.
+  There is no pending/accepted status because the pending half lives in
+  `Invite`: a Share row is only ever created by redeeming a code, so a row
+  means both people agreed. `budgetOwnerUserId` names whichever member's
+  Category/Budget rows are canonical for both. A user may have at most one
+  active (`revokedAt IS NULL`) share, enforced in the application
   (`src/sharing.ts`), not the schema. `visibleUserIds(userId)` and
   `effectiveBudgetOwnerId(userId)` are the two resolution points every
   share-aware route calls through — see `src/routes/shares.ts` and the
   model's own doc-comment in `schema.prisma` for the full shape.
+
+- **Invite** — a short-lived 8-digit code one user hands another out-of-band;
+  redeeming it creates the Share, and **redeeming is the consent**. Several
+  things about it run against the conventions elsewhere in this schema, each
+  on purpose:
+  - **The code is plaintext**, not a hash like `RefreshToken.tokenHash`, so the
+    sender can reopen the Share screen and reread it. Never log one.
+  - **Dead rows are hard-deleted**, not soft-revoked. Nothing here is worth
+    keeping — the Share row carries both ids and a `createdAt` — and a kept row
+    would hold a code out of a 10⁸-wide space. Expired rows are collected
+    lazily on the next create; that is the whole garbage collector.
+  - **`creatorId` is unique**, so "one live code per user" is a real database
+    constraint, unlike the one-active-share rule above.
+  - `POST /api/invites` is **idempotent while a code is live** — asking again
+    returns the same code. There is no refresh, only cancel.
+  - Unknown, expired and already-redeemed codes all answer with the **same**
+    404, so the endpoint cannot be used to probe which codes exist.
+
+  `POST /api/shares` is the redeem route and the **only** path that creates a
+  Share. It is rate-limited (`src/middleware/rateLimit.ts`, the app's only
+  limiter) and takes `pg_advisory_xact_lock` on both user ids — the one-active-
+  share read cannot be trusted alone under READ COMMITTED. **Read
+  `docs/sharing.md` before touching the code length, the expiry, the caps or
+  the locking**; all four are load-bearing and the reasoning does not fit here.
 
 - **Income** — a user's income, `ONE_TIME` or `RECURRING`. Deliberately does
   **not** merge under a Share the way Category/Budget do: both partners'
@@ -336,10 +362,18 @@ Check for drift with `npx prisma migrate status` — expect
   middleware. CORS runs with `credentials: true`, which the browser only honours
   against an explicit origin allowlist — `CORS_ORIGIN` must name the frontend
   exactly, never `*`, or the refresh cookie is silently dropped.
-- `src/routes/{auth,users,receipts,transactions,categories,budgets,shares,incomes}.ts`
-  — one router per concern.
+- `src/routes/{auth,users,receipts,transactions,categories,budgets,shares,invites,incomes}.ts`
+  — one router per concern. Note the one split that is not obvious: minting and
+  cancelling an invite live in `invites.ts`, but **redeeming** one is
+  `POST /api/shares`, because the thing being created is a Share and the
+  serializer and the one-active-share predicate live there.
 - `src/auth/` — `google.ts` (ID-token verification) and `tokens.ts` (access +
-  refresh token lifecycle). `src/middleware/auth.ts` — `requireAuth`.
+  refresh token lifecycle). `src/sharing.ts` and `src/invites.ts` hold the
+  domain logic for their routers, the same split `auth/tokens.ts` has from
+  `routes/auth.ts`.
+- `src/middleware/auth.ts` — `requireAuth`. `src/middleware/rateLimit.ts` — the
+  app's only rate limiter, mounted on invite minting and, load-bearingly, on
+  redemption; see `docs/sharing.md`.
 - `src/http.ts` — shared parsing/validation helpers and the response serializers.
   **Use these rather than hand-rolling validation in a route**, so error shapes
   stay consistent. Throw `HttpError(status, message)` for client errors; the

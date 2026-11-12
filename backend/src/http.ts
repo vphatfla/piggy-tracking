@@ -91,6 +91,20 @@ export function requiredMonth(body: unknown, field: string): string {
   return value
 }
 
+/** Parses an 8-digit household invite code. Spaces and hyphens are stripped so
+ *  the grouped form the UI shows ("1234 5678") pastes straight back in — but
+ *  only those: stripping every non-digit would quietly turn a pasted URL or a
+ *  typo into a well-formed guess, and in a 10^8-wide space the ability to say
+ *  "that is not a code" is worth keeping. Stays a string because a leading
+ *  zero is significant. */
+export function requiredCode(body: unknown, field: string): string {
+  const value = (body as Record<string, unknown> | null)?.[field]
+  if (typeof value !== 'string') throw badRequest(`${field} is required and must be a string`)
+  const digits = value.replace(/[\s-]/g, '')
+  if (!/^\d{8}$/.test(digits)) throw badRequest(`${field} must be an 8-digit code`)
+  return digits
+}
+
 /** The optional twin of `requiredDate`, for a field that may be absent because
  *  something else supplies a default. Same UTC parse, same reason. */
 export function optionalDate(body: unknown, field: string): Date | null {

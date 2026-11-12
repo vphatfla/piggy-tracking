@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import type { Session } from '../api'
 import { formatMoney } from '../format'
 import { useDashboard } from '../hooks/useDashboard'
@@ -87,9 +86,16 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     total,
     rows,
     cents,
+    sharingOpen,
+    setSharingOpen,
+    invite,
+    inviteStatus,
+    shareError,
+    onCreateInvite,
+    onCancelInvite,
+    onJoinWithCode,
   } = useDashboard(session)
   const dim = loading ? 'opacity-40' : ''
-  const [sharingOpen, setSharingOpen] = useState(false)
 
   // Shared by both drill-down entry points (a real category and the
   // Uncategorised bucket) so the two never render differently.
@@ -419,6 +425,12 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
         share={share}
         onChangeBudgetOwner={onChangeBudgetOwner}
         onLeaveShare={onLeaveShare}
+        invite={invite}
+        inviteStatus={inviteStatus}
+        shareError={shareError}
+        onCreateInvite={onCreateInvite}
+        onCancelInvite={onCancelInvite}
+        onJoinWithCode={onJoinWithCode}
       />
     </main>
   )
