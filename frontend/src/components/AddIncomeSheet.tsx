@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { inputClasses } from '../ui'
 import { CloseIcon } from './icons'
+import { MoneyInput } from './MoneyInput'
 import { Sheet } from './Sheet'
 
 /** Mirrors AddTransactionSheet's shape — a global action from the header, not
@@ -85,12 +86,11 @@ export function AddIncomeSheet({
         </div>
 
         <div className="flex items-center gap-2">
-          <input
+          <MoneyInput
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={setAmount}
             placeholder="0.00"
             aria-label="Amount"
-            inputMode="decimal"
             className={`${inputClasses} flex-1 tabular-nums`}
           />
           <button
