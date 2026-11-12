@@ -10,6 +10,7 @@ import {
   getBudgetsExist,
   getCategories,
   getIncomes,
+  getMerchants,
   getMyShare,
   getReceipts,
   getTransactions,
@@ -20,6 +21,7 @@ import {
   type Budget,
   type Category,
   type Income,
+  type Merchant,
   type Receipt,
   type Session,
   type Share,
@@ -34,6 +36,11 @@ import { applyThemePreference, getStoredThemePreference, type ThemePreference } 
 
 /** Where the add-transaction form is in its submit cycle. */
 export type AddStatus = 'idle' | 'saving' | 'saved'
+
+/** The add form's category, and *why* it holds that id. 'user' is a deliberate
+ *  pick — from the picker or an inline create — and outranks 'merchant', which
+ *  is a guess made from the merchant's own history. */
+type CategoryChoice = { id: number; source: 'user' | 'merchant' } | null
 
 /** All of Dashboard's state, effects, and derived data, kept out of the
  *  component so the JSX in Dashboard.tsx is rendering only. Every ref-based
@@ -59,6 +66,10 @@ export function useDashboard(session: Session) {
   // 'uncategorised' is a sentinel since that bucket has no real category id.
   const [expandedCategoryId, setExpandedCategoryId] = useState<number | 'uncategorised' | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
+  // Every merchant ever used, for the add form's autocomplete. All-time and
+  // month-independent, so it is fetched once per session like categories —
+  // never from refresh().
+  const [merchants, setMerchants] = useState<Merchant[]>([])
   const [budgets, setBudgets] = useState<Budget[]>([])
   const [incomes, setIncomes] = useState<Income[]>([])
   const [expandedIncome, setExpandedIncome] = useState(false)
@@ -90,7 +101,12 @@ export function useDashboard(session: Session) {
   const [addStatus, setAddStatus] = useState<AddStatus>('idle')
   const merchantInputRef = useRef<HTMLInputElement>(null)
   // null means "nothing picked yet, follow the default" — see selectedCategory.
-  const [categoryId, setCategoryId] = useState<number | null>(null)
+  // The `source` rides along with the id rather than living in a second
+  // `touched` flag, so the value and the reason it holds that value cannot
+  // drift: a deliberate pick has to survive a merchant autofill, and once a
+  // successful add has re-seeded the field nothing else in the form can tell
+  // the two apart.
+  const [categoryChoice, setCategoryChoice] = useState<CategoryChoice>(null)
   const [merchant, setMerchant] = useState('')
   const [amount, setAmount] = useState('')
   // Today per the *user's* clock — the server's today is a timezone guess.
@@ -169,6 +185,15 @@ export function useDashboard(session: Session) {
   useEffect(() => {
     getCategories(accessToken)
       .then(setCategories)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+  }, [accessToken])
+
+  // Same shape, same reason: the merchant list spans every month, so putting
+  // it in refresh() would refetch the whole history on each press of the month
+  // stepper. A new merchant is folded in locally by onSubmit instead.
+  useEffect(() => {
+    getMerchants(accessToken)
+      .then(setMerchants)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
   }, [accessToken])
 
@@ -262,6 +287,27 @@ export function useDashboard(session: Session) {
     setExpandedCategoryId((cur) => (cur === id ? null : cur))
   }
 
+  // What CategorySelect's onChange reaches. Inline-creating a category routes
+  // through the same callback, so creating one counts as deliberate too.
+  function setCategoryId(id: number) {
+    setCategoryChoice({ id, source: 'user' })
+  }
+
+  /** Accepting a merchant suggestion: take its canonical spelling, and file the
+   *  entry the way that merchant was last filed. The category only moves if the
+   *  user has not picked one deliberately for this entry — and on a miss it is
+   *  left alone rather than cleared, since picking an old merchant is no reason
+   *  to yank a category out from under them. The `categories.some` guard is the
+   *  one `selectedCategory` already applies: pooled history can name a category
+   *  this user cannot see if the share's budget owner ever changed, or one
+   *  since deleted. */
+  function onAcceptMerchant(m: Merchant) {
+    setMerchant(m.merchantName)
+    if (m.categoryId === null || !categories.some((c) => c.id === m.categoryId)) return
+    const id = m.categoryId
+    setCategoryChoice((prev) => (prev?.source === 'user' ? prev : { id, source: 'merchant' }))
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!merchant.trim() || !amount.trim() || !date || selectedCategory === null) return
@@ -274,13 +320,28 @@ export function useDashboard(session: Session) {
         categoryId: selectedCategory,
         date,
       })
+      // Fold the entry into the autocomplete list rather than refetching the
+      // whole history. Keyed on the lowercased name and overwriting the stored
+      // spelling, which is what the server would return next session.
+      const usedMerchant = merchant.trim()
+      setMerchants((ms) => {
+        const key = usedMerchant.toLowerCase()
+        const next = ms.filter((m) => m.merchantName.toLowerCase() !== key)
+        next.push({ merchantName: usedMerchant, categoryId: selectedCategory })
+        return next.sort((a, b) => a.merchantName.localeCompare(b.merchantName))
+      })
       setMerchant('')
       setAmount('')
-      // The category is deliberately *not* reset: consecutive entries are
-      // usually the same kind of spending, and re-picking every time is the
+      // The category's *value* is deliberately not reset: consecutive entries
+      // are usually the same kind of spending, and re-picking every time is the
       // friction that makes people stop logging. The sheet closes now, but the
       // draft outlives it — reopening starts where this one left off.
-      setCategoryId(selectedCategory)
+      //
+      // What does reset is its provenance. The pick was deliberate about the
+      // entry that just saved, not about the next one, so the retained id stays
+      // on as a default while a recognised merchant is now allowed to improve
+      // on it. Deliberateness is per-entry.
+      setCategoryChoice(selectedCategory === null ? null : { id: selectedCategory, source: 'merchant' })
       // Back to today, not to the viewed month: entering into September while
       // looking at June is a mistake, not a feature.
       setDate(todayIso())
@@ -438,7 +499,9 @@ export function useDashboard(session: Session) {
   // Plain function, not useMemo: it scans a handful of rows, and memoising it
   // costs more than it saves.
   const selectedCategory = ((): number | null => {
-    if (categoryId !== null && categories.some((c) => c.id === categoryId)) return categoryId
+    if (categoryChoice !== null && categories.some((c) => c.id === categoryChoice.id)) {
+      return categoryChoice.id
+    }
     const lastUsed = transactions.find((t) => t.categoryId !== null)?.categoryId
     if (lastUsed !== undefined && categories.some((c) => c.id === lastUsed)) return lastUsed
     return categories[0]?.id ?? null
@@ -526,6 +589,8 @@ export function useDashboard(session: Session) {
     setDate,
     selectedCategory,
     setCategoryId,
+    merchants,
+    onAcceptMerchant,
     onSubmit,
     onSaved,
     onDeleted,

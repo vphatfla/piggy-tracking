@@ -68,6 +68,8 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     merchantInputRef,
     merchant,
     setMerchant,
+    merchants,
+    onAcceptMerchant,
     amount,
     setAmount,
     date,
@@ -390,6 +392,8 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
         merchantInputRef={merchantInputRef}
         merchant={merchant}
         setMerchant={setMerchant}
+        merchants={merchants}
+        onAcceptMerchant={onAcceptMerchant}
         amount={amount}
         setAmount={setAmount}
         date={date}

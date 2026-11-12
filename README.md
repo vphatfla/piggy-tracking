@@ -85,6 +85,7 @@ main does not deploy anything.
 | GET    | `/api/receipts`          | bearer | Your receipts, newest first                      |
 | POST   | `/api/receipts`          | bearer | `{ date: "YYYY-MM-DD", totalAmount, receiptFileName? }` |
 | GET    | `/api/transactions`      | bearer | Your transactions, newest first; `?from=&to=` filters by date (inclusive) |
+| GET    | `/api/transactions/merchants` | bearer | `[{ merchantName, categoryId }]` — every merchant ever used, with the category it was last filed under. Powers the add form's autocomplete |
 | POST   | `/api/transactions`      | bearer | `{ merchantName, amount, categoryId, date: "YYYY-MM-DD", receiptId? }` |
 | PATCH  | `/api/transactions/:id`  | bearer | Partial — only the fields present are written    |
 | DELETE | `/api/transactions/:id`  | bearer | `204`. Hard delete, no undo                      |
