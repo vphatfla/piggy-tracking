@@ -208,6 +208,12 @@ export function SharePage({
           </div>
         ) : (
           <div className="space-y-2">
+            {/* The two halves are mutually exclusive: giving a code and
+                entering one are different intentions, and showing both at once
+                asks the user to re-read the screen to find the half they
+                wanted. `entering` wins, so a live invite arriving from the
+                fetch-on-open cannot blank the form out from under them. */}
+            {!entering && (
             <div className="overflow-hidden rounded-card bg-surface-raised px-4 py-5 text-center">
               <p className="text-subheadline text-label-secondary">
                 Share your budget and transactions with someone in your household — you'll both see and edit
@@ -272,7 +278,11 @@ export function SharePage({
                 </button>
               )}
             </div>
+            )}
 
+            {/* Hidden once a code of your own is out, so the screen says one
+                thing at a time — but never while the form is open. */}
+            {(entering || !invite) && (
             <div className="overflow-hidden rounded-card bg-surface-raised">
               {entering ? (
                 <form onSubmit={(e) => void handleJoin(e)} className="space-y-2 p-4">
@@ -324,6 +334,7 @@ export function SharePage({
                 </button>
               )}
             </div>
+            )}
           </div>
         )}
 
