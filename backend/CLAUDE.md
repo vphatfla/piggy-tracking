@@ -138,36 +138,38 @@ Nine models. See `prisma/schema.prisma` for the authoritative definition.
   share-aware route calls through — see `src/routes/shares.ts` and the
   model's own doc-comment in `schema.prisma` for the full shape.
 
-  **A user may be in at most one active share, and that is enforced on
-  `User.activeShareId`, not on `Share`.** A user can sit in either of Share's
-  two member columns, so no unique index over `Share` expresses the rule, and
-  checking it with a read does not work: the read matches rows that do not
-  exist yet, so it takes no lock, and two concurrent redemptions both pass it.
+  **The two members are stored normalized** — `userLoId` always holds the
+  lesser user id — so `@@unique([userLoId, userHiId])` means "these two share
+  at most once" instead of catching only one of the two orderings. Neither
+  column means anything alone: there is **no initiator column**, because
+  nothing needed one. `budgetOwnerUserId` defaults to the invite's sender at
+  creation and that default is the only trace of who started it.
+
+  **A user may be in at most one share, and the pair constraint does not
+  enforce that** — `(A,B)` and `(A,C)` are different keys. It is enforced on
+  **`User.activeShareId`**. The equivalent check over `Share` cannot work:
+  a user may sit in either column so no single-column unique expresses it, and
+  checking with a read matches rows that do not exist yet, which takes no lock
+  under READ COMMITTED — two concurrent redemptions both passed it.
   `POST /api/shares` instead claims both `User` rows with a conditional
-  `updateMany` — rows that exist can be locked — and treats `count !== 2` as a
+  `updateMany` (rows that exist *can* be locked) and treats `count !== 2` as a
   409. Same idiom as every other scoped write here.
 
-  Two consequences worth knowing:
+  Three things to preserve:
   - **`activeShareId` is a write guard only.** `activeShare()` still reads
     `Share`, which stays the single source of truth for what a user's share
     *is*. Keep it that way: if the two ever disagree, the worst case is
     wrongly refusing a new share, never wrongly pooling someone's data.
-  - **Revoking must clear it in the same transaction** as stamping
-    `revokedAt`. An `activeShareId` left pointing at a revoked share locks both
-    members out of sharing again.
-
-  There is also a partial unique index on the unordered pair,
-  **`Share_active_pair_key`** on
-  `(LEAST(initiatorId, partnerId), GREATEST(...)) WHERE revokedAt IS NULL`. It
-  is a backstop covering the same-pair race only — it would not stop one user
-  being in two shares with two different people. **It cannot be declared in
-  `schema.prisma`** (Prisma has no syntax for a partial or expression index),
-  so it lives in the migration SQL alone and `prisma migrate dev` will see it
-  as drift and offer to drop it. Use `migrate dev --create-only` and keep the
-  index in the generated file. This is the easiest way to silently lose it.
-  `POST /api/shares` also catches `P2002` and rethrows the 409, so the index
-  firing never surfaces as `conflictingField()`'s "a record with that
-  active_pair already exists".
+  - **Ending a share deletes the row**, deliberately unlike `RefreshToken`,
+    whose `revokedAt` is load-bearing for replay detection. Nothing here ever
+    read an ended share — every use was a `revokedAt IS NULL` filter — and
+    keeping dead rows would force the pair constraint to be a *partial* index,
+    which Prisma cannot declare. It also means the handler needs no second
+    write: `User.activeShareId` is `ON DELETE SET NULL`, so Postgres releases
+    both members' claims by itself.
+  - `POST /api/shares` catches `P2002` and rethrows the 409, so the pair
+    constraint firing never surfaces as `conflictingField()`'s "a record with
+    that userLoId_userHiId already exists".
 
 - **Invite** — a short-lived 8-digit code one user hands another out-of-band;
   redeeming it creates the Share, and **redeeming is the consent**. Several
@@ -175,10 +177,10 @@ Nine models. See `prisma/schema.prisma` for the authoritative definition.
   on purpose:
   - **The code is plaintext**, not a hash like `RefreshToken.tokenHash`, so the
     sender can reopen the Share screen and reread it. Never log one.
-  - **Dead rows are hard-deleted**, not soft-revoked. Nothing here is worth
-    keeping — the Share row carries both ids and a `createdAt` — and a kept row
-    would hold a code out of a 10⁸-wide space. Expired rows are collected
-    lazily on the next create; that is the whole garbage collector.
+  - **Dead rows are hard-deleted**, not soft-revoked — same call `Share` makes,
+    and for an extra reason of its own: a kept row would hold a code out of a
+    10⁸-wide space. Expired rows are collected lazily on the next create; that
+    is the whole garbage collector.
   - **`creatorId` is unique**, so "one live code per user" is a real database
     constraint, unlike the one-active-share rule above.
   - `POST /api/invites` is **idempotent while a code is live** — asking again

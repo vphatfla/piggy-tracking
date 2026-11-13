@@ -96,9 +96,10 @@ export type Invite = {
  *  canonical for both; either member can change it. */
 export type Share = {
   id: number
+  /** The *other* member, resolved server-side per request — the two are stored
+   *  as a normalized pair, so neither column is "the partner" on its own. */
   partner: { id: number; firstName: string; lastName: string; email: string }
   budgetOwnerUserId: number
-  isInitiator: boolean
 }
 
 /** One source of income, one-time or recurring — the counterpart to spending.

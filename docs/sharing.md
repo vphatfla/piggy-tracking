@@ -28,12 +28,12 @@ created.
 
 `visibleUserIds` and `effectiveBudgetOwnerId` in `src/sharing.ts` are the two
 functions that decide what every request can see. A `status` column on `Share`
-would mean both of them — and the five-odd places that check
-`revokedAt: null` — need to remember a third state. Miss one and the app pools
-real financial data on an invite nobody accepted. That is the worst available
-failure, so the design makes it unrepresentable instead: a `Share` row exists
-only after consent, and both resolvers were left **completely unchanged** by
-this feature.
+would mean both of them, and every place that queries a share, need to remember
+a third state. Miss one and the app pools real financial data on an invite
+nobody accepted. That is the worst available failure, so the design makes it
+unrepresentable instead: **a `Share` row exists only after consent**, so its
+mere presence is the whole of the state. Nothing in either resolver had to
+learn anything new.
 
 ## Why 8 digits, and why the rate limiter is not optional
 
@@ -93,9 +93,9 @@ computed.
 This is the subtlest part of the feature, and the first design of it was
 wrong, so the reasoning is worth keeping.
 
-The rule spans two columns — a user may be in `initiatorId` *or* `partnerId` —
-so no unique index over `Share` expresses it, which makes the obvious
-implementation a read: *"is there an active share naming either of us?"*
+The rule spans two columns — a user may be in `userLoId` *or* `userHiId` — so
+no unique index over `Share` expresses it, which makes the obvious
+implementation a read: *"is there a share naming either of us?"*
 
 **That read does not work.** It matches rows that do not exist yet, and a read
 matching nothing takes no lock, under READ COMMITTED — which is what Prisma
@@ -147,43 +147,65 @@ Three properties to preserve:
   *is*. That asymmetry is deliberate: if the two ever desync, the worst
   outcome is wrongly *refusing* a new share — it fails closed, and can never
   wrongly pool somebody's data.
-- **Revoking clears it in the same transaction** as stamping `revokedAt`. A
-  stale `activeShareId` locks both members out of sharing again.
+- **Ending a share deletes the row**, and that is what releases the claims:
+  `User.activeShareId` is `ON DELETE SET NULL`, so Postgres clears both
+  members by itself and the handler needs no second write. See below.
 - **Redemption stays the only path that creates a Share.** That is a further
   reason the `{ partnerEmail }` endpoint had to go: a second creation path
   that skipped the claim would reopen the hole.
 
-### The pair index, and what it does not do
+### Why ending a share deletes the row
 
-There is also a partial unique index on the unordered pair:
+`Share` used to soft-revoke, with a `revokedAt` column, by resemblance to
+`RefreshToken`. That was wrong, and the giveaway is that **nothing ever read
+it** — every single use was a `revokedAt IS NULL` filter. `RefreshToken` needs
+its `revokedAt` because the column *is* the replay-detection mechanism
+(`tokens.ts` claims a token by flipping it and checking the count). `Share` has
+no analogue.
 
-```sql
-CREATE UNIQUE INDEX "Share_active_pair_key"
-    ON "Share" (LEAST("initiatorId", "partnerId"), GREATEST("initiatorId", "partnerId"))
- WHERE "revokedAt" IS NULL;
+Keeping dead rows cost three things:
+
+- The pair constraint had to be a **partial** index (`WHERE revokedAt IS NULL`),
+  or a pair that had ever shared could never share again. Prisma cannot declare
+  a partial or expression index, so it lived in raw migration SQL and
+  `prisma migrate dev` would offer to drop it on every run — a standing trap.
+- The revoke handler had to clear both `activeShareId`s **in the same
+  transaction** as stamping `revokedAt`, or a stale pointer would lock both
+  members out of sharing forever. Two writes to keep in step.
+- A nullable column and five filters threaded through `sharing.ts` and three
+  handlers.
+
+Deleting instead removes all three. The constraint becomes a plain
+`@@unique([userLoId, userHiId])` that lives in `schema.prisma` like every other
+one; the foreign key releases the claims; the filters disappear. And nothing is
+lost that anything read.
+
+What *is* given up: the ability to answer "did these two ever share?". No
+feature wanted it.
+
+### The pair constraint, and what it does not do
+
+```prisma
+@@unique([userLoId, userHiId])
 ```
 
-`LEAST`/`GREATEST` normalise the pair, so `(Ada,Bea)` and `(Bea,Ada)` collide
-as they should. It is a **backstop covering the mutual-redemption race only** —
-it does nothing for the second race above, because `(Ada,Bea)` and
-`(Ada,Cal)` are different keys. The claim column is the mechanism; this is
-belt and braces.
+The members are **stored normalized** — `userLoId` always holds the lesser id —
+so `(Ada,Bea)` and `(Bea,Ada)` are the same row and one plain unique catches
+both orderings. Redemption sorts the pair on the way in.
 
-Two things about it:
+It is a **backstop covering the mutual-redemption race only.** It does nothing
+for the second race above, because `(Ada,Bea)` and `(Ada,Cal)` are different
+keys. The claim column is the mechanism; this is belt and braces. Verified by
+experiment: inserting a *different* active pair directly is accepted.
 
-- **It cannot be declared in `schema.prisma`** — Prisma has no syntax for a
-  partial or expression index — so it exists only in the migration SQL, and
-  `prisma migrate dev` sees it as drift and offers to drop it. Use
-  `--create-only` and keep it. This is the easiest way to lose it silently.
-- `POST /api/shares` catches `P2002` and rethrows the 409, so the index firing
-  never surfaces as `conflictingField()`'s *"a record with that active_pair
-  already exists"*.
+`POST /api/shares` catches `P2002` and rethrows the 409, so the constraint
+firing never surfaces as `conflictingField()`'s *"a record with that
+userLoId_userHiId already exists"*.
 
-The index is partial rather than a true composite primary key for a reason: a
-primary key cannot be partial, so it would be permanently occupied by revoked
-rows and a pair could never share again after ending a share. It would also
-have meant dropping `Share.id`, which `PATCH`/`DELETE /api/shares/:id` depend
-on.
+Note it is a `UNIQUE` constraint and not the primary key. `Share.id` has to
+stay a single-column key: `PATCH`/`DELETE /api/shares/:id` take it from the
+URL, and `User.activeShareId` is a foreign key to it. A composite primary key
+would have broken both.
 
 ### What was rejected
 
@@ -203,8 +225,9 @@ on.
   only ever be shown once. The cost is that a database leak exposes live
   codes — bounded by the one-hour expiry, and each code buys one household.
   **Never log one.**
-- **Dead invites are hard-deleted, not soft-revoked** — the opposite of `Share`
-  and `RefreshToken`, whose `revokedAt` exists to preserve history. There is no
+- **Dead invites are hard-deleted, not soft-revoked** — the same call `Share`
+  makes, and the opposite of `RefreshToken`, whose `revokedAt` is its
+  replay-detection mechanism rather than a history log. There is no
   history worth keeping: the `Share` row a redemption produces already carries
   both user ids and a `createdAt`. Expired rows are collected lazily on the
   next create, which is the entire garbage collector.

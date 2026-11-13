@@ -30,9 +30,9 @@ model User {
   incomes       Income[]
   refreshTokens RefreshToken[]
 
-  shareInitiations       Share[] @relation("ShareInitiator")
-  sharePartnerships      Share[] @relation("SharePartner")
-  shareBudgetOwnerships  Share[] @relation("ShareBudgetOwner")
+  sharesAsLo            Share[] @relation("ShareUserLo")
+  sharesAsHi            Share[] @relation("ShareUserHi")
+  shareBudgetOwnerships Share[] @relation("ShareBudgetOwner")
 
   /// Optional and singular: Invite.creatorId is unique, so a user holds at
   /// most one live code at a time.
@@ -206,43 +206,48 @@ model Income {
 /// is migrated when a Share is created or revoked.
 ///
 /// `budgetOwnerUserId` names whichever member's Category/Budget rows are
-/// canonical for both users. It defaults to `initiatorId` at creation, but
-/// either member may change it afterward — the asymmetry between the two
-/// users lives only in that default, nowhere else.
+/// canonical for both users. It defaults to the *sender* of the invite at
+/// creation (`Invite.creatorId`), but either member may change it afterward.
+/// Note that default is the only remaining trace of who started the share —
+/// there is no initiator column, because nothing needed one.
 ///
-/// A user may have at most one active (`revokedAt IS NULL`) share. No plain
-/// unique index expresses that, because a user may sit in either column — so
-/// the invariant is enforced on `User.activeShareId`, which redemption claims
-/// with a conditional UPDATE. See that field, and `POST /api/shares`.
+/// **The two members are stored normalized**: `userLoId` always holds the
+/// lesser user id. That is what makes `@@unique([userLoId, userHiId])` mean
+/// "these two share at most once", rather than only catching one of the two
+/// orderings. It is also why neither column means anything on its own — do not
+/// read `userLoId` as "the one who started it".
 ///
-/// There is also a partial unique index on the *unordered pair*,
-/// `Share_active_pair_key` on
-/// `(LEAST(initiatorId, partnerId), GREATEST(...)) WHERE revokedAt IS NULL`.
-/// It is a second line of defence and covers only the same-pair case: it would
-/// not stop one user appearing in two shares with two *different* people.
-/// **It lives in the migration SQL and cannot be declared here** — Prisma has
-/// no syntax for a partial or expression index — so `prisma migrate dev` sees
-/// it as drift and will offer to drop it. See `backend/CLAUDE.md`.
+/// **Ending a share deletes the row.** Deliberately unlike RefreshToken, which
+/// soft-revokes because its `revokedAt` is load-bearing for replay detection.
+/// Nothing here ever read a revoked row: every use was a `revokedAt IS NULL`
+/// filter, and keeping dead rows forced the pair constraint to be a *partial*
+/// index, which Prisma cannot declare. Deleting also releases both members for
+/// free, since `User.activeShareId` is `ON DELETE SET NULL`.
+///
+/// A user may be in at most one share, which the pair constraint does **not**
+/// enforce on its own — `(A,B)` and `(A,C)` are different keys. That invariant
+/// lives on `User.activeShareId`; see that field and `POST /api/shares`.
 model Share {
-  id                Int       @id @default(autoincrement())
-  initiatorId       Int
-  partnerId         Int
+  id Int @id @default(autoincrement())
+  /// The lesser of the two member ids; see the normalization note above.
+  userLoId          Int
+  /// The greater of the two member ids.
+  userHiId          Int
   budgetOwnerUserId Int
-  createdAt         DateTime  @default(now())
-  /// Non-null means this share has ended. Soft-revoked rather than deleted,
-  /// same pattern as RefreshToken, so past sharing history isn't lost.
-  revokedAt         DateTime?
+  createdAt         DateTime @default(now())
 
-  initiator   User @relation("ShareInitiator", fields: [initiatorId], references: [id], onDelete: Cascade)
-  partner     User @relation("SharePartner", fields: [partnerId], references: [id], onDelete: Cascade)
+  userLo      User @relation("ShareUserLo", fields: [userLoId], references: [id], onDelete: Cascade)
+  userHi      User @relation("ShareUserHi", fields: [userHiId], references: [id], onDelete: Cascade)
   budgetOwner User @relation("ShareBudgetOwner", fields: [budgetOwnerUserId], references: [id], onDelete: Cascade)
 
   /// Back-reference for `User.activeShare`. Prisma will not compile the
   /// relation without it; nothing reads it.
   activeFor User[] @relation("UserActiveShare")
 
-  @@index([initiatorId])
-  @@index([partnerId])
+  @@unique([userLoId, userHiId])
+  /// The unique above already indexes `userLoId` as its prefix; this covers the
+  /// other half of `userLoId = ? OR userHiId = ?`.
+  @@index([userHiId])
 }
 
 /// A short-lived code one user generates and passes to the other out-of-band

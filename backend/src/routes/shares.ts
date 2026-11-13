@@ -15,33 +15,34 @@ const memberSelect = { id: true, firstName: true, lastName: true, email: true } 
 
 type Member = { id: number; firstName: string; lastName: string; email: string }
 
-/** Shapes a Share row for a specific caller — "partner" is always the other
- *  member, never a fixed column, since either the initiator or the partner
- *  can be the one asking. */
+/** Shapes a Share row for a specific caller — `partner` is always *the other
+ *  member*, resolved per request rather than read off a fixed column. It has to
+ *  be: the pair is stored normalized, so which column a given caller occupies
+ *  depends only on which of the two user ids is smaller. */
 function serializeShare(
-  share: { id: number; initiatorId: number; partnerId: number; budgetOwnerUserId: number },
+  share: { id: number; userLoId: number; budgetOwnerUserId: number },
   callerId: number,
-  members: { initiator: Member; partner: Member },
+  members: { userLo: Member; userHi: Member },
 ) {
-  const partner = share.initiatorId === callerId ? members.partner : members.initiator
   return {
     id: share.id,
-    partner,
+    partner: share.userLoId === callerId ? members.userHi : members.userLo,
     budgetOwnerUserId: share.budgetOwnerUserId,
-    isInitiator: share.initiatorId === callerId,
   }
 }
 
+const shareMembers = { userLo: { select: memberSelect }, userHi: { select: memberSelect } } as const
+
 // GET /api/shares/me
 //
-// The caller's active share, or null. Backs the Share settings page: no
-// share means "show the invite option", a share means "show who it's with".
+// The caller's share, or null. Backs the Share settings page: no share means
+// "show the invite option", a share means "show who it's with".
 sharesRouter.get('/me', async (req, res, next) => {
   try {
     const userId = authedUserId(req)
     const share = await prisma.share.findFirst({
-      where: { revokedAt: null, OR: [{ initiatorId: userId }, { partnerId: userId }] },
-      include: { initiator: { select: memberSelect }, partner: { select: memberSelect } },
+      where: activeShareWhere([userId]),
+      include: shareMembers,
     })
     res.json(share ? serializeShare(share, userId, share) : null)
   } catch (err) {
@@ -100,11 +101,15 @@ sharesRouter.post('/', redeemLimiter, async (req, res, next) => {
       const { count } = await tx.invite.deleteMany({ where: { id: invite.id } })
       if (count === 0) throw invalidInvite()
 
-      // The sender's budgets stay canonical, matching the old behaviour of
-      // defaulting to whoever initiated. Either member can change it after.
+      // Normalized on the way in, which is what makes @@unique([userLoId,
+      // userHiId]) mean "these two share at most once" rather than catching
+      // only one of the two orderings. The sender's budgets stay canonical —
+      // that default is the only trace of who started it, and either member
+      // can change it afterwards.
+      const [userLoId, userHiId] = [invite.creatorId, userId].sort((a, b) => a - b)
       const created = await tx.share.create({
-        data: { initiatorId: invite.creatorId, partnerId: userId, budgetOwnerUserId: invite.creatorId },
-        include: { initiator: { select: memberSelect }, partner: { select: memberSelect } },
+        data: { userLoId, userHiId, budgetOwnerUserId: invite.creatorId },
+        include: shareMembers,
       })
 
       // The claim, and the whole reason this route no longer takes an advisory
@@ -130,10 +135,10 @@ sharesRouter.post('/', redeemLimiter, async (req, res, next) => {
 
     res.status(201).json(serializeShare(share, userId, share))
   } catch (err) {
-    // A P2002 here is the Share_active_pair_key partial index firing, i.e. the
-    // same pair raced. Say what happened: app.ts's conflictingField() would
-    // otherwise derive a message from the index name and answer with
-    // "A record with that active_pair already exists".
+    // A P2002 here is @@unique([userLoId, userHiId]) firing, i.e. the same pair
+    // raced. Say what happened: app.ts's conflictingField() would otherwise
+    // derive a message from the index name and answer with "A record with that
+    // userLoId_userHiId already exists".
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
       next(alreadyShared())
       return
@@ -144,26 +149,25 @@ sharesRouter.post('/', redeemLimiter, async (req, res, next) => {
 
 // PATCH /api/shares/:id  { budgetOwnerUserId }
 //
-// Either member may change whose budgets are canonical — the initiator/
-// partner asymmetry lives only in the default at creation, not here.
+// Either member may change whose budgets are canonical. There is no asymmetry
+// between the two to respect — the sender's default at creation is the only
+// place one ever existed.
 sharesRouter.patch('/:id', async (req, res, next) => {
   try {
     const userId = authedUserId(req)
     const id = parseIdParam(req.params.id)
     const budgetOwnerUserId = requiredInt(req.body, 'budgetOwnerUserId')
 
-    const share = await prisma.share.findFirst({
-      where: { id, revokedAt: null, OR: [{ initiatorId: userId }, { partnerId: userId }] },
-    })
+    const share = await prisma.share.findFirst({ where: { id, ...activeShareWhere([userId]) } })
     if (!share) throw new HttpError(404, `No active share with id ${id}`)
-    if (budgetOwnerUserId !== share.initiatorId && budgetOwnerUserId !== share.partnerId) {
+    if (budgetOwnerUserId !== share.userLoId && budgetOwnerUserId !== share.userHiId) {
       throw badRequest('budgetOwnerUserId must be one of the two members of this share')
     }
 
     const updated = await prisma.share.update({
       where: { id },
       data: { budgetOwnerUserId },
-      include: { initiator: { select: memberSelect }, partner: { select: memberSelect } },
+      include: shareMembers,
     })
     res.json(serializeShare(updated, userId, updated))
   } catch (err) {
@@ -173,27 +177,27 @@ sharesRouter.patch('/:id', async (req, res, next) => {
 
 // DELETE /api/shares/:id
 //
-// Either member may end it. Soft-revoked, not deleted — same pattern as
-// RefreshToken — and non-destructive on both sides: nothing was migrated
-// when the share was created, so nothing needs to be undone here either.
+// Either member may end it. A real delete, not a soft revoke — deliberately
+// unlike RefreshToken, whose `revokedAt` is load-bearing for replay detection.
+// Nothing ever read an ended share, and keeping the rows would have forced the
+// pair constraint to be a partial index that Prisma cannot declare.
+//
+// It is also non-destructive where it counts: no data was migrated when the
+// share was created, so the two people's transactions, categories and budgets
+// are untouched — they simply stop being pooled. And deleting the row releases
+// both members' claims by itself, because User.activeShareId is
+// ON DELETE SET NULL. No second write, nothing to keep in step.
 sharesRouter.delete('/:id', async (req, res, next) => {
   try {
     const userId = authedUserId(req)
     const id = parseIdParam(req.params.id)
 
-    await prisma.$transaction(async (tx) => {
-      const { count } = await tx.share.updateMany({
-        where: { id, revokedAt: null, OR: [{ initiatorId: userId }, { partnerId: userId }] },
-        data: { revokedAt: new Date() },
-      })
-      if (count === 0) throw new HttpError(404, `No active share with id ${id}`)
-
-      // Releases both members, in the same transaction as the revoke rather
-      // than after it: an activeShareId still pointing at a revoked share would
-      // lock both of them out of ever sharing again. Keyed on the share, so it
-      // needs no knowledge of who the two members were.
-      await tx.user.updateMany({ where: { activeShareId: id }, data: { activeShareId: null } })
+    // deleteMany, not delete: the caller's membership belongs in the WHERE
+    // clause, or an id alone would let anyone end anyone's share.
+    const { count } = await prisma.share.deleteMany({
+      where: { id, ...activeShareWhere([userId]) },
     })
+    if (count === 0) throw new HttpError(404, `No active share with id ${id}`)
 
     res.status(204).end()
   } catch (err) {
