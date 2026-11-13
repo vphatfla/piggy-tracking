@@ -37,6 +37,22 @@ model User {
   /// Optional and singular: Invite.creatorId is unique, so a user holds at
   /// most one live code at a time.
   invite Invite?
+
+  /// The share this user is currently in, or null. It exists so that "at most
+  /// one active share per user" can be enforced by a conditional UPDATE against
+  /// a row that *exists* — see `POST /api/shares`. The equivalent check over
+  /// `Share` has to read rows that are not there yet, and a read matching
+  /// nothing takes no lock, so two concurrent redemptions both passed it.
+  ///
+  /// Deliberately **not** read by `activeShare()`. `Share` stays the single
+  /// source of truth for what a user's share *is*; this column only ever gates
+  /// creating one. That asymmetry is the point: if the two ever disagree, the
+  /// worst outcome is wrongly refusing a new share, never wrongly pooling
+  /// somebody's data.
+  activeShareId Int?
+  activeShare   Share? @relation("UserActiveShare", fields: [activeShareId], references: [id], onDelete: SetNull)
+
+  @@index([activeShareId])
 }
 
 /// A scanned/uploaded receipt. Deleting the owning user removes their receipts.
@@ -194,9 +210,19 @@ model Income {
 /// either member may change it afterward — the asymmetry between the two
 /// users lives only in that default, nowhere else.
 ///
-/// A user may have at most one active (`revokedAt IS NULL`) share; that is
-/// an application-level check (see `src/sharing.ts`), not something a plain
-/// unique index can express across these two columns.
+/// A user may have at most one active (`revokedAt IS NULL`) share. No plain
+/// unique index expresses that, because a user may sit in either column — so
+/// the invariant is enforced on `User.activeShareId`, which redemption claims
+/// with a conditional UPDATE. See that field, and `POST /api/shares`.
+///
+/// There is also a partial unique index on the *unordered pair*,
+/// `Share_active_pair_key` on
+/// `(LEAST(initiatorId, partnerId), GREATEST(...)) WHERE revokedAt IS NULL`.
+/// It is a second line of defence and covers only the same-pair case: it would
+/// not stop one user appearing in two shares with two *different* people.
+/// **It lives in the migration SQL and cannot be declared here** — Prisma has
+/// no syntax for a partial or expression index — so `prisma migrate dev` sees
+/// it as drift and will offer to drop it. See `backend/CLAUDE.md`.
 model Share {
   id                Int       @id @default(autoincrement())
   initiatorId       Int
@@ -210,6 +236,10 @@ model Share {
   initiator   User @relation("ShareInitiator", fields: [initiatorId], references: [id], onDelete: Cascade)
   partner     User @relation("SharePartner", fields: [partnerId], references: [id], onDelete: Cascade)
   budgetOwner User @relation("ShareBudgetOwner", fields: [budgetOwnerUserId], references: [id], onDelete: Cascade)
+
+  /// Back-reference for `User.activeShare`. Prisma will not compile the
+  /// relation without it; nothing reads it.
+  activeFor User[] @relation("UserActiveShare")
 
   @@index([initiatorId])
   @@index([partnerId])

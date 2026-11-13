@@ -88,34 +88,113 @@ MFA gets away with 6 digits because it is a *second* factor behind a password
 **and** is aggressively rate-limited — not because of how the digits are
 computed.
 
-## Why redemption takes an advisory lock
+## How "one active share per user" is actually enforced
 
-The rule "a user may be in at most one active share" spans two columns
-(`initiatorId`, `partnerId`), so no unique index can express it. It has to be
-a read — and **a read over rows that do not exist proves nothing** under READ
-COMMITTED, which is what Prisma opens an interactive transaction with. Two
-concurrent redemptions naming the same person would both see no conflict and
-both insert, leaving one user in two active shares, at which point
-`activeShare()`'s `findFirst` returns an arbitrary one of them and the user's
-categories flicker between two households.
+This is the subtlest part of the feature, and the first design of it was
+wrong, so the reasoning is worth keeping.
 
-So `POST /api/shares` takes `pg_advisory_xact_lock` on **each of the two user
-ids**, ascending. Two details that are easy to get wrong:
+The rule spans two columns — a user may be in `initiatorId` *or* `partnerId` —
+so no unique index over `Share` expresses it, which makes the obvious
+implementation a read: *"is there an active share naming either of us?"*
 
-- **One lock per user id, not one keyed on the pair.** A+B and A+C are
-  different pairs and would not exclude each other, yet both insert a share
-  naming A.
-- **Ascending order**, so there is no cycle for a deadlock to exploit.
+**That read does not work.** It matches rows that do not exist yet, and a read
+matching nothing takes no lock, under READ COMMITTED — which is what Prisma
+opens an interactive transaction with. Two concurrent redemptions both see "no
+conflict" and both insert.
 
-The alternative was `isolationLevel: 'Serializable'` plus a retry loop, which
-needs a `40001` branch in `app.ts`'s error middleware that does not exist —
-without it a serialization failure surfaces as a 500. The advisory lock is
-less machinery and fails closed. It is the first raw SQL in this codebase,
-which is a real cost and the reason it is written down here.
+### The two races
 
-This hole exists in `Share` creation generally, which is a further reason the
-email endpoint had to go: once redemption is the **only** path that creates a
-`Share`, locking it closes the invariant completely.
+**Mutual redemption.** Ada and Bea each generate a code and send it to the
+other, neither realising. Both tap Join at once. Both reads return zero rows;
+both insert. Two active shares for the same pair, with *opposite*
+`budgetOwnerUserId`. `activeShare()` is a `findFirst` with no `ORDER BY`, so
+`effectiveBudgetOwnerId(Ada)` then returns Bea on one request and Ada on the
+next, and Ada's categories flip between households on every refresh. No error,
+nothing logged.
+
+**Two codes, one redeemer.** Bea and Cal both send codes to Ada; Ada redeems
+both at once (two tabs, or a retry on a slow network). Ada ends up in two
+shares with two different people, while Bea and Cal cannot see each other.
+
+### The fix: claim the User rows
+
+`User.activeShareId` moves the invariant onto rows that **always exist**.
+Redemption creates the Share, then:
+
+```ts
+const claimed = await tx.user.updateMany({
+  where: { id: { in: [invite.creatorId, userId] }, activeShareId: null },
+  data: { activeShareId: created.id },
+})
+if (claimed.count !== 2) throw alreadyShared()
+```
+
+A second concurrent redemption blocks on the row lock, re-evaluates
+`activeShareId: null` against the newly committed row, stops matching, comes
+back with `count < 2`, and rolls the whole transaction back. This is the same
+`updateMany`-with-count idiom `backend/CLAUDE.md` already mandates for scoped
+writes, and the same one that makes the invite claim and the refresh-token
+claim safe.
+
+Verified under real concurrency, not just by reasoning: firing both mutual
+redemptions simultaneously yields one 201 and one 409, with exactly one active
+share and both users pointing at it.
+
+Three properties to preserve:
+
+- **`activeShareId` is a write guard only.** `activeShare()` still reads
+  `Share`, which remains the single source of truth for what a user's share
+  *is*. That asymmetry is deliberate: if the two ever desync, the worst
+  outcome is wrongly *refusing* a new share — it fails closed, and can never
+  wrongly pool somebody's data.
+- **Revoking clears it in the same transaction** as stamping `revokedAt`. A
+  stale `activeShareId` locks both members out of sharing again.
+- **Redemption stays the only path that creates a Share.** That is a further
+  reason the `{ partnerEmail }` endpoint had to go: a second creation path
+  that skipped the claim would reopen the hole.
+
+### The pair index, and what it does not do
+
+There is also a partial unique index on the unordered pair:
+
+```sql
+CREATE UNIQUE INDEX "Share_active_pair_key"
+    ON "Share" (LEAST("initiatorId", "partnerId"), GREATEST("initiatorId", "partnerId"))
+ WHERE "revokedAt" IS NULL;
+```
+
+`LEAST`/`GREATEST` normalise the pair, so `(Ada,Bea)` and `(Bea,Ada)` collide
+as they should. It is a **backstop covering the mutual-redemption race only** —
+it does nothing for the second race above, because `(Ada,Bea)` and
+`(Ada,Cal)` are different keys. The claim column is the mechanism; this is
+belt and braces.
+
+Two things about it:
+
+- **It cannot be declared in `schema.prisma`** — Prisma has no syntax for a
+  partial or expression index — so it exists only in the migration SQL, and
+  `prisma migrate dev` sees it as drift and offers to drop it. Use
+  `--create-only` and keep it. This is the easiest way to lose it silently.
+- `POST /api/shares` catches `P2002` and rethrows the 409, so the index firing
+  never surfaces as `conflictingField()`'s *"a record with that active_pair
+  already exists"*.
+
+The index is partial rather than a true composite primary key for a reason: a
+primary key cannot be partial, so it would be permanently occupied by revoked
+rows and a pair could never share again after ending a share. It would also
+have meant dropping `Share.id`, which `PATCH`/`DELETE /api/shares/:id` depend
+on.
+
+### What was rejected
+
+- **`pg_advisory_xact_lock` on both user ids** — the original implementation,
+  and correct. Replaced because it was the only raw SQL in the codebase to do
+  something the schema can now express natively. If you ever reach for it
+  again, note the trap: lock each **user id** separately, never the pair, or
+  `(A,B)` and `(A,C)` take different locks and exclude nothing.
+- **`isolationLevel: 'Serializable'`** plus a retry loop. Postgres would catch
+  the write skew, but a `40001` abort needs a branch in `app.ts`'s error
+  middleware that does not exist, so it would surface as a 500.
 
 ## Smaller decisions worth not re-litigating
 

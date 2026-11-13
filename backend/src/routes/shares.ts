@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { Prisma } from '../generated/prisma/client.ts'
 import { badRequest, HttpError, parseIdParam, requiredCode, requiredInt } from '../http.ts'
 import { invalidInvite } from '../invites.ts'
 import { authedUserId, requireAuth } from '../middleware/auth.ts'
@@ -58,17 +59,13 @@ const redeemLimiter = rateLimit({ perUser: 5, global: 30, windowMs: HOUR_MS })
 
 const alreadyShared = () => new HttpError(409, 'One of you is already sharing with someone else')
 
-// The namespace half of the advisory lock key below. Reads as "a share
-// involving this user id".
-const LOCK_NS = 1
-
 // POST /api/shares  { code }
 //
 // Redeems a household invite code and makes the share live. **This is the only
 // way a Share is ever created.** It replaced a `{ partnerEmail }` form that
 // created one immediately — no consent from the other person at all, and a 404
 // on an unknown address that made it an email-enumeration oracle. Both of those
-// are why it is gone, and being the sole creation path is what lets the lock
+// are why it is gone, and being the sole creation path is what lets the claim
 // below actually enforce one-active-share-per-user.
 //
 // Rate-limited, and that limiter is a security control rather than a courtesy:
@@ -82,8 +79,8 @@ sharesRouter.post('/', redeemLimiter, async (req, res, next) => {
     // already sharing gets a specific message instead of the opaque 404, since
     // their own state leaks nothing about anyone else's code — and a wrong
     // guess from such a caller never touches, let alone consumes, a real
-    // invite. Re-checked under the lock below where it is race-free; this copy
-    // is purely about which error comes back.
+    // invite. The claim inside the transaction is what makes it race-free;
+    // this copy is purely about which error comes back.
     if (await prisma.share.findFirst({ where: activeShareWhere([userId]) })) throw alreadyShared()
 
     const share = await prisma.$transaction(async (tx) => {
@@ -96,29 +93,6 @@ sharesRouter.post('/', redeemLimiter, async (req, res, next) => {
       // so there is nothing left for them to probe.
       if (invite.creatorId === userId) throw badRequest('That is your own invite code')
 
-      // One-active-share-per-user spans two columns, so no unique index can
-      // express it (see sharing.ts) and the check has to be a read. But a read
-      // over rows that do not exist proves nothing under READ COMMITTED, which
-      // is what Prisma opens an interactive transaction with: two concurrent
-      // redemptions naming the same person would both see no conflict and both
-      // insert, leaving a user in two shares and `activeShare()` returning an
-      // arbitrary one of them.
-      //
-      // So the lock is what enforces the invariant, not the read. One lock per
-      // user id rather than one keyed on the pair — A+B and A+C are different
-      // pairs and would not exclude each other, which is the subtle way to get
-      // this wrong. Ascending order, so there is no cycle for a deadlock.
-      const [lo, hi] = [invite.creatorId, userId].sort((a, b) => a - b)
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LOCK_NS}, ${lo})`
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LOCK_NS}, ${hi})`
-
-      if (await tx.share.findFirst({ where: activeShareWhere([userId, invite.creatorId]) })) {
-        // Thrown before the invite is consumed on purpose: a sender whose
-        // recipient turns out to be sharing already should not have to go and
-        // generate a fresh code.
-        throw alreadyShared()
-      }
-
       // Single-use, as an atomic conditional delete rather than a
       // read-then-write — the same shape as consuming a refresh token, for the
       // same reason: the same code submitted twice at the same instant loses
@@ -128,14 +102,42 @@ sharesRouter.post('/', redeemLimiter, async (req, res, next) => {
 
       // The sender's budgets stay canonical, matching the old behaviour of
       // defaulting to whoever initiated. Either member can change it after.
-      return tx.share.create({
+      const created = await tx.share.create({
         data: { initiatorId: invite.creatorId, partnerId: userId, budgetOwnerUserId: invite.creatorId },
         include: { initiator: { select: memberSelect }, partner: { select: memberSelect } },
       })
+
+      // The claim, and the whole reason this route no longer takes an advisory
+      // lock. One-active-share-per-user spans two Share columns, so no unique
+      // index expresses it and the check has to be a read — but a read over
+      // Share rows that do not exist yet matches nothing and therefore locks
+      // nothing under READ COMMITTED, which is what Prisma opens an interactive
+      // transaction with. Two concurrent redemptions both saw "no conflict".
+      //
+      // Both User rows, by contrast, always exist. A second redemption blocks
+      // on the row lock here, re-evaluates `activeShareId: null` against the
+      // newly committed row, stops matching, comes back with count < 2, and
+      // rolls the whole thing back. Same updateMany-with-count idiom as every
+      // other scoped write in this codebase.
+      const claimed = await tx.user.updateMany({
+        where: { id: { in: [invite.creatorId, userId] }, activeShareId: null },
+        data: { activeShareId: created.id },
+      })
+      if (claimed.count !== 2) throw alreadyShared()
+
+      return created
     })
 
     res.status(201).json(serializeShare(share, userId, share))
   } catch (err) {
+    // A P2002 here is the Share_active_pair_key partial index firing, i.e. the
+    // same pair raced. Say what happened: app.ts's conflictingField() would
+    // otherwise derive a message from the index name and answer with
+    // "A record with that active_pair already exists".
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      next(alreadyShared())
+      return
+    }
     next(err)
   }
 })
@@ -177,15 +179,22 @@ sharesRouter.patch('/:id', async (req, res, next) => {
 sharesRouter.delete('/:id', async (req, res, next) => {
   try {
     const userId = authedUserId(req)
-    const { count } = await prisma.share.updateMany({
-      where: {
-        id: parseIdParam(req.params.id),
-        revokedAt: null,
-        OR: [{ initiatorId: userId }, { partnerId: userId }],
-      },
-      data: { revokedAt: new Date() },
+    const id = parseIdParam(req.params.id)
+
+    await prisma.$transaction(async (tx) => {
+      const { count } = await tx.share.updateMany({
+        where: { id, revokedAt: null, OR: [{ initiatorId: userId }, { partnerId: userId }] },
+        data: { revokedAt: new Date() },
+      })
+      if (count === 0) throw new HttpError(404, `No active share with id ${id}`)
+
+      // Releases both members, in the same transaction as the revoke rather
+      // than after it: an activeShareId still pointing at a revoked share would
+      // lock both of them out of ever sharing again. Keyed on the share, so it
+      // needs no knowledge of who the two members were.
+      await tx.user.updateMany({ where: { activeShareId: id }, data: { activeShareId: null } })
     })
-    if (count === 0) throw new HttpError(404, `No active share with id ${req.params.id}`)
+
     res.status(204).end()
   } catch (err) {
     next(err)

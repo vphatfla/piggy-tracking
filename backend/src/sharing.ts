@@ -5,10 +5,13 @@ import { prisma } from './prisma.ts'
  *  a transaction without threading a client type through. Covered by
  *  `@@index([initiatorId])` and `@@index([partnerId])`.
  *
- *  This is the one-active-share-per-user rule, and it spans two columns, so no
- *  unique index can express it — which is why it is a read, and why the redeem
- *  path has to take a lock around it rather than trusting the read alone. See
- *  `POST /api/shares`. */
+ *  Read-only, and **not** how the one-active-share-per-user rule is enforced.
+ *  A user may sit in either column, so no unique index over `Share` expresses
+ *  the rule, and a read like this one over rows that do not exist yet locks
+ *  nothing — two concurrent redemptions would both pass it. Enforcement lives
+ *  on `User.activeShareId`, which `POST /api/shares` claims with a conditional
+ *  UPDATE against rows that always exist. This predicate is for answering
+ *  "are they sharing right now", and for deciding which error a caller gets. */
 export const activeShareWhere = (userIds: number[]) => ({
   revokedAt: null,
   OR: userIds.flatMap((id) => [{ initiatorId: id }, { partnerId: id }]),

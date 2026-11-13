@@ -133,12 +133,41 @@ Nine models. See `prisma/schema.prisma` for the authoritative definition.
   There is no pending/accepted status because the pending half lives in
   `Invite`: a Share row is only ever created by redeeming a code, so a row
   means both people agreed. `budgetOwnerUserId` names whichever member's
-  Category/Budget rows are canonical for both. A user may have at most one
-  active (`revokedAt IS NULL`) share, enforced in the application
-  (`src/sharing.ts`), not the schema. `visibleUserIds(userId)` and
+  Category/Budget rows are canonical for both. `visibleUserIds(userId)` and
   `effectiveBudgetOwnerId(userId)` are the two resolution points every
   share-aware route calls through — see `src/routes/shares.ts` and the
   model's own doc-comment in `schema.prisma` for the full shape.
+
+  **A user may be in at most one active share, and that is enforced on
+  `User.activeShareId`, not on `Share`.** A user can sit in either of Share's
+  two member columns, so no unique index over `Share` expresses the rule, and
+  checking it with a read does not work: the read matches rows that do not
+  exist yet, so it takes no lock, and two concurrent redemptions both pass it.
+  `POST /api/shares` instead claims both `User` rows with a conditional
+  `updateMany` — rows that exist can be locked — and treats `count !== 2` as a
+  409. Same idiom as every other scoped write here.
+
+  Two consequences worth knowing:
+  - **`activeShareId` is a write guard only.** `activeShare()` still reads
+    `Share`, which stays the single source of truth for what a user's share
+    *is*. Keep it that way: if the two ever disagree, the worst case is
+    wrongly refusing a new share, never wrongly pooling someone's data.
+  - **Revoking must clear it in the same transaction** as stamping
+    `revokedAt`. An `activeShareId` left pointing at a revoked share locks both
+    members out of sharing again.
+
+  There is also a partial unique index on the unordered pair,
+  **`Share_active_pair_key`** on
+  `(LEAST(initiatorId, partnerId), GREATEST(...)) WHERE revokedAt IS NULL`. It
+  is a backstop covering the same-pair race only — it would not stop one user
+  being in two shares with two different people. **It cannot be declared in
+  `schema.prisma`** (Prisma has no syntax for a partial or expression index),
+  so it lives in the migration SQL alone and `prisma migrate dev` will see it
+  as drift and offer to drop it. Use `migrate dev --create-only` and keep the
+  index in the generated file. This is the easiest way to silently lose it.
+  `POST /api/shares` also catches `P2002` and rethrows the 409, so the index
+  firing never surfaces as `conflictingField()`'s "a record with that
+  active_pair already exists".
 
 - **Invite** — a short-lived 8-digit code one user hands another out-of-band;
   redeeming it creates the Share, and **redeeming is the consent**. Several
@@ -158,11 +187,11 @@ Nine models. See `prisma/schema.prisma` for the authoritative definition.
     404, so the endpoint cannot be used to probe which codes exist.
 
   `POST /api/shares` is the redeem route and the **only** path that creates a
-  Share. It is rate-limited (`src/middleware/rateLimit.ts`, the app's only
-  limiter) and takes `pg_advisory_xact_lock` on both user ids — the one-active-
-  share read cannot be trusted alone under READ COMMITTED. **Read
-  `docs/sharing.md` before touching the code length, the expiry, the caps or
-  the locking**; all four are load-bearing and the reasoning does not fit here.
+  Share — which is what lets the claim described above enforce the invariant
+  at all. It is rate-limited (`src/middleware/rateLimit.ts`, the app's only
+  limiter). **Read `docs/sharing.md` before touching the code length, the
+  expiry, the caps or the claim**; all four are load-bearing and the reasoning
+  does not fit here.
 
 - **Income** — a user's income, `ONE_TIME` or `RECURRING`. Deliberately does
   **not** merge under a Share the way Category/Budget do: both partners'
