@@ -40,7 +40,9 @@ export function SharePage({
   invite: Invite | null
   inviteStatus: 'idle' | 'saving'
   shareError: string | null
-  onCreateInvite: () => Promise<void>
+  /** Resolves true when a code came back, so a failure can hand the user back
+   *  both options rather than stranding them in an empty invite half. */
+  onCreateInvite: () => Promise<boolean>
   onCancelInvite: () => Promise<void>
   /** Resolves true when the share was created, so the form can clear itself
    *  only on success and leave a rejected code in place to be corrected. */
@@ -49,9 +51,16 @@ export function SharePage({
   const [leaving, setLeaving] = useState(false)
   const [confirmingLeave, setConfirmingLeave] = useState(false)
   const [codeInput, setCodeInput] = useState('')
-  const [entering, setEntering] = useState(false)
   const [joining, setJoining] = useState(false)
   const [copied, setCopied] = useState(false)
+  /** Which half of the no-share screen the user picked. Starts at 'choosing'
+   *  on every open, so both options are always offered first and only the one
+   *  they pick survives. It is deliberately *not* derived from whether an
+   *  invite exists: `invite` is also populated by the fetch-on-open, so keying
+   *  off it meant a code left over from an earlier session hid "Have a code?"
+   *  and stranded the user — they had to remove their own code before they
+   *  could enter somebody else's. */
+  const [mode, setMode] = useState<'choosing' | 'inviting' | 'joining'>('choosing')
 
   /** The Sheet stays mounted while closed (see its own comment), so every
    *  transient bit of state here outlives a dismissal unless it is cleared — a
@@ -64,7 +73,7 @@ export function SharePage({
    *  refetched when the sheet reopens precisely because it expires on a clock. */
   function handleClose() {
     setCodeInput('')
-    setEntering(false)
+    setMode('choosing')
     setCopied(false)
     setConfirmingLeave(false)
     onClose()
@@ -102,6 +111,13 @@ export function SharePage({
     }
   }
 
+  async function handleInvite() {
+    setMode('inviting')
+    // Straight back to both options if it failed — the invite half would
+    // otherwise sit there with nothing in it and no way across to the other.
+    if (!(await onCreateInvite())) setMode('choosing')
+  }
+
   async function handleJoin(e: React.FormEvent) {
     e.preventDefault()
     if (codeInput.length !== 8 || joining) return
@@ -109,7 +125,7 @@ export function SharePage({
     try {
       if (await onJoinWithCode(codeInput)) {
         setCodeInput('')
-        setEntering(false)
+        setMode('choosing')
       }
     } finally {
       setJoining(false)
@@ -208,12 +224,12 @@ export function SharePage({
           </div>
         ) : (
           <div className="space-y-2">
-            {/* The two halves are mutually exclusive: giving a code and
-                entering one are different intentions, and showing both at once
-                asks the user to re-read the screen to find the half they
-                wanted. `entering` wins, so a live invite arriving from the
-                fetch-on-open cannot blank the form out from under them. */}
-            {!entering && (
+            {/* Both halves on arrival, then only the one they picked — giving a
+                code and entering one are different intentions, and leaving both
+                on screen afterwards asks the user to re-find the half they
+                chose. Keyed on `mode` rather than on `invite`, so this is about
+                what they did here and now. */}
+            {mode !== 'joining' && (
             <div className="overflow-hidden rounded-card bg-surface-raised px-4 py-5 text-center">
               <p className="text-subheadline text-label-secondary">
                 Share your budget and transactions with someone in your household — you'll both see and edit
@@ -260,7 +276,12 @@ export function SharePage({
                         reopened the screen. Removing it is the deliberate act. */}
                     <button
                       type="button"
-                      onClick={() => void onCancelInvite()}
+                      onClick={() => {
+                        // Back to offering both halves: they have just thrown
+                        // away the code, so joining is live again.
+                        setMode('choosing')
+                        void onCancelInvite()
+                      }}
                       className="flex min-h-11 items-center rounded-full px-4 text-subheadline font-semibold text-danger-text transition-colors duration-200 ease-out hover:bg-surface focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                     >
                       Remove
@@ -271,7 +292,7 @@ export function SharePage({
                 <button
                   type="button"
                   disabled={inviteStatus === 'saving'}
-                  onClick={() => void onCreateInvite()}
+                  onClick={() => void handleInvite()}
                   className="mt-4 inline-flex min-h-11 items-center rounded-full bg-accent/12 px-5 text-headline font-semibold text-accent-text transition-opacity duration-200 ease-out disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                 >
                   {inviteStatus === 'saving' ? 'Getting a code…' : 'Invite someone'}
@@ -280,11 +301,12 @@ export function SharePage({
             </div>
             )}
 
-            {/* Hidden once a code of your own is out, so the screen says one
-                thing at a time — but never while the form is open. */}
-            {(entering || !invite) && (
+            {/* Hidden once they have asked for a code of their own, so the
+                screen says one thing at a time. A code merely *existing* does
+                not hide this: see `mode`. */}
+            {mode !== 'inviting' && (
             <div className="overflow-hidden rounded-card bg-surface-raised">
-              {entering ? (
+              {mode === 'joining' ? (
                 <form onSubmit={(e) => void handleJoin(e)} className="space-y-2 p-4">
                   <label htmlFor="invite-code" className="block text-footnote text-label-secondary">
                     Enter the code they gave you
@@ -308,7 +330,7 @@ export function SharePage({
                     <button
                       type="button"
                       onClick={() => {
-                        setEntering(false)
+                        setMode('choosing')
                         setCodeInput('')
                       }}
                       className="flex min-h-11 flex-1 items-center justify-center rounded-full text-subheadline font-semibold text-label-secondary transition-colors duration-200 ease-out hover:bg-surface focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
@@ -327,7 +349,7 @@ export function SharePage({
               ) : (
                 <button
                   type="button"
-                  onClick={() => setEntering(true)}
+                  onClick={() => setMode('joining')}
                   className="flex min-h-11 w-full items-center px-4 text-body text-accent-text transition-colors duration-200 ease-out hover:bg-surface focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                 >
                   Have a code?

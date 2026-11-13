@@ -289,13 +289,18 @@ export function useDashboard(session: Session) {
 
   /** Mints the invite, or returns the one already live — the server decides,
    *  and there is deliberately no way to replace a live code. */
+  // Reports whether it worked, like onJoinWithCode, so the Share screen can put
+  // the user back in front of both options instead of leaving them in a half
+  // that has nothing to show.
   async function onCreateInvite() {
     setShareError(null)
     setInviteStatus('saving')
     try {
       setInvite(await createInvite(accessToken))
+      return true
     } catch (e) {
       setShareError(shareMessage(e))
+      return false
     } finally {
       setInviteStatus('idle')
     }
