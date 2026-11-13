@@ -1,10 +1,31 @@
 import { prisma } from './prisma.ts'
 
-/** The caller's active share, or null. A row's mere existence means
- *  "active" — there is no pending/accepted status yet, see schema.prisma. */
+/** "Any of these users is in a share." Written as the predicate rather than as
+ *  a query so the same clause runs against the plain client and inside a
+ *  transaction without threading a client type through. Covered by
+ *  `@@unique([userLoId, userHiId])` for the first half and
+ *  `@@index([userHiId])` for the second.
+ *
+ *  Both columns have to be checked because the pair is stored normalized —
+ *  neither column means anything on its own, so "is this user sharing" is
+ *  always a two-column question.
+ *
+ *  Read-only, and **not** how the one-share-per-user rule is enforced. A read
+ *  over rows that do not exist yet locks nothing, so two concurrent
+ *  redemptions would both pass it. Enforcement lives on `User.activeShareId`,
+ *  which `POST /api/shares` claims with a conditional UPDATE against rows that
+ *  always exist. This predicate answers "are they sharing right now", and
+ *  decides which error a caller gets. */
+export const activeShareWhere = (userIds: number[]) => ({
+  OR: userIds.flatMap((id) => [{ userLoId: id }, { userHiId: id }]),
+})
+
+/** The caller's share, or null. A row's mere existence means the share is
+ *  live: the pending state lives in `Invite`, and ending a share deletes the
+ *  row rather than flagging it. See schema.prisma. */
 async function activeShare(userId: number) {
   return prisma.share.findFirst({
-    where: { revokedAt: null, OR: [{ initiatorId: userId }, { partnerId: userId }] },
+    where: { OR: [{ userLoId: userId }, { userHiId: userId }] },
   })
 }
 
@@ -16,7 +37,7 @@ async function activeShare(userId: number) {
 export async function visibleUserIds(userId: number): Promise<number[]> {
   const share = await activeShare(userId)
   if (!share) return [userId]
-  return [share.initiatorId, share.partnerId]
+  return [share.userLoId, share.userHiId]
 }
 
 /** Whose Category/Budget rows are canonical for this caller. Unshared, that

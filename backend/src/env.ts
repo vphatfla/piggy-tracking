@@ -66,4 +66,11 @@ export const env = {
   jwtRefreshSecret: required('JWT_REFRESH_SECRET'),
   accessTokenExpiry: process.env.ACCESS_TOKEN_EXPIRY ?? '15m',
   refreshTokenExpiryDays: positiveInt('REFRESH_TOKEN_EXPIRY_DAYS', 30),
+
+  // --- sharing ---
+  // How long a household invite code stays redeemable. This is a security
+  // parameter, not just a convenience one: an 8-digit code is 10^8 wide, and
+  // total exposure is (how many codes are live) x (how long each one lives).
+  // See docs/sharing.md before raising it.
+  inviteExpiryMinutes: positiveInt('INVITE_EXPIRY_MINUTES', 60),
 }

@@ -98,7 +98,10 @@ main does not deploy anything.
 | PUT    | `/api/budgets`           | bearer | `{ categoryId, month, amount }` — upserts one month's limit |
 | DELETE | `/api/budgets/:categoryId` | bearer | `?month=YYYY-MM`. `204`. Removes that month's row only |
 | GET    | `/api/shares/me`         | bearer | The caller's active share, or `null`                  |
-| POST   | `/api/shares`            | bearer | `{ partnerEmail }` — creates an active share immediately; `409` if either side is already in one |
+| POST   | `/api/shares`            | bearer | `{ code }` — redeems an invite code, which is the only way a share is created. `404` on an invalid/expired/used code, `409` if either side is already in one, `429` when rate-limited |
+| POST   | `/api/invites`           | bearer | Your live invite code, minting one if you have none. Idempotent while live — there is no refresh. `409` if you are already sharing |
+| GET    | `/api/invites/me`        | bearer | `{ code, expiresAt }`, or `null`                      |
+| DELETE | `/api/invites/me`        | bearer | `204`. Cancels your invite, whether or not you had one |
 | PATCH  | `/api/shares/:id`        | bearer | `{ budgetOwnerUserId }` — picks which member's categories/budgets are canonical |
 | DELETE | `/api/shares/:id`        | bearer | `204`. Revokes the share; no rows migrate back        |
 | GET    | `/api/incomes`           | bearer | `?month=YYYY-MM` (required) — income effective that month, for the caller and any share partner |

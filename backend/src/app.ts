@@ -8,6 +8,7 @@ import { authRouter } from './routes/auth.ts'
 import { budgetsRouter } from './routes/budgets.ts'
 import { categoriesRouter } from './routes/categories.ts'
 import { incomesRouter } from './routes/incomes.ts'
+import { invitesRouter } from './routes/invites.ts'
 import { receiptsRouter } from './routes/receipts.ts'
 import { sharesRouter } from './routes/shares.ts'
 import { transactionsRouter } from './routes/transactions.ts'
@@ -36,6 +37,7 @@ export function createApp() {
   app.use('/api/budgets', budgetsRouter)
   app.use('/api/transactions', transactionsRouter)
   app.use('/api/shares', sharesRouter)
+  app.use('/api/invites', invitesRouter)
   app.use('/api/incomes', incomesRouter)
 
   app.use((_req, res) => {

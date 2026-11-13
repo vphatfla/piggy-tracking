@@ -30,9 +30,29 @@ model User {
   incomes       Income[]
   refreshTokens RefreshToken[]
 
-  shareInitiations       Share[] @relation("ShareInitiator")
-  sharePartnerships      Share[] @relation("SharePartner")
-  shareBudgetOwnerships  Share[] @relation("ShareBudgetOwner")
+  sharesAsLo            Share[] @relation("ShareUserLo")
+  sharesAsHi            Share[] @relation("ShareUserHi")
+  shareBudgetOwnerships Share[] @relation("ShareBudgetOwner")
+
+  /// Optional and singular: Invite.creatorId is unique, so a user holds at
+  /// most one live code at a time.
+  invite Invite?
+
+  /// The share this user is currently in, or null. It exists so that "at most
+  /// one active share per user" can be enforced by a conditional UPDATE against
+  /// a row that *exists* — see `POST /api/shares`. The equivalent check over
+  /// `Share` has to read rows that are not there yet, and a read matching
+  /// nothing takes no lock, so two concurrent redemptions both passed it.
+  ///
+  /// Deliberately **not** read by `activeShare()`. `Share` stays the single
+  /// source of truth for what a user's share *is*; this column only ever gates
+  /// creating one. That asymmetry is the point: if the two ever disagree, the
+  /// worst outcome is wrongly refusing a new share, never wrongly pooling
+  /// somebody's data.
+  activeShareId Int?
+  activeShare   Share? @relation("UserActiveShare", fields: [activeShareId], references: [id], onDelete: SetNull)
+
+  @@index([activeShareId])
 }
 
 /// A scanned/uploaded receipt. Deleting the owning user removes their receipts.
@@ -174,36 +194,93 @@ model Income {
 }
 
 /// Pairwise sharing between two household members. Its existence *is* the
-/// active state — there is no pending/accepted status, since the invite
-/// mechanism is deliberately not built yet: a row means the share is live.
+/// active state — there is no pending/accepted status, because the pending
+/// state lives in `Invite` instead: a Share row is only ever created by
+/// redeeming a code, so a row means both people agreed and the share is live.
+/// Keeping the two apart is deliberate — a `status` column here would mean
+/// every caller of `visibleUserIds`/`effectiveBudgetOwnerId` had a third state
+/// to remember to check, and missing one would pool data on an invite nobody
+/// had accepted.
 /// Sharing changes what a query returns (which transactions are visible,
 /// whose categories/budgets are canonical), never who owns a row — no data
 /// is migrated when a Share is created or revoked.
 ///
 /// `budgetOwnerUserId` names whichever member's Category/Budget rows are
-/// canonical for both users. It defaults to `initiatorId` at creation, but
-/// either member may change it afterward — the asymmetry between the two
-/// users lives only in that default, nowhere else.
+/// canonical for both users. It defaults to the *sender* of the invite at
+/// creation (`Invite.creatorId`), but either member may change it afterward.
+/// Note that default is the only remaining trace of who started the share —
+/// there is no initiator column, because nothing needed one.
 ///
-/// A user may have at most one active (`revokedAt IS NULL`) share; that is
-/// an application-level check (see `src/sharing.ts`), not something a plain
-/// unique index can express across these two columns.
+/// **The two members are stored normalized**: `userLoId` always holds the
+/// lesser user id. That is what makes `@@unique([userLoId, userHiId])` mean
+/// "these two share at most once", rather than only catching one of the two
+/// orderings. It is also why neither column means anything on its own — do not
+/// read `userLoId` as "the one who started it".
+///
+/// **Ending a share deletes the row.** Deliberately unlike RefreshToken, which
+/// soft-revokes because its `revokedAt` is load-bearing for replay detection.
+/// Nothing here ever read a revoked row: every use was a `revokedAt IS NULL`
+/// filter, and keeping dead rows forced the pair constraint to be a *partial*
+/// index, which Prisma cannot declare. Deleting also releases both members for
+/// free, since `User.activeShareId` is `ON DELETE SET NULL`.
+///
+/// A user may be in at most one share, which the pair constraint does **not**
+/// enforce on its own — `(A,B)` and `(A,C)` are different keys. That invariant
+/// lives on `User.activeShareId`; see that field and `POST /api/shares`.
 model Share {
-  id                Int       @id @default(autoincrement())
-  initiatorId       Int
-  partnerId         Int
+  id Int @id @default(autoincrement())
+  /// The lesser of the two member ids; see the normalization note above.
+  userLoId          Int
+  /// The greater of the two member ids.
+  userHiId          Int
   budgetOwnerUserId Int
-  createdAt         DateTime  @default(now())
-  /// Non-null means this share has ended. Soft-revoked rather than deleted,
-  /// same pattern as RefreshToken, so past sharing history isn't lost.
-  revokedAt         DateTime?
+  createdAt         DateTime @default(now())
 
-  initiator   User @relation("ShareInitiator", fields: [initiatorId], references: [id], onDelete: Cascade)
-  partner     User @relation("SharePartner", fields: [partnerId], references: [id], onDelete: Cascade)
+  userLo      User @relation("ShareUserLo", fields: [userLoId], references: [id], onDelete: Cascade)
+  userHi      User @relation("ShareUserHi", fields: [userHiId], references: [id], onDelete: Cascade)
   budgetOwner User @relation("ShareBudgetOwner", fields: [budgetOwnerUserId], references: [id], onDelete: Cascade)
 
-  @@index([initiatorId])
-  @@index([partnerId])
+  /// Back-reference for `User.activeShare`. Prisma will not compile the
+  /// relation without it; nothing reads it.
+  activeFor User[] @relation("UserActiveShare")
+
+  @@unique([userLoId, userHiId])
+  /// The unique above already indexes `userLoId` as its prefix; this covers the
+  /// other half of `userLoId = ? OR userHiId = ?`.
+  @@index([userHiId])
+}
+
+/// A short-lived code one user generates and passes to the other out-of-band
+/// (text, in person). Redeeming it is what creates the Share, and redeeming is
+/// the consent — before this existed, one user could pool another's entire
+/// financial history by typing their email, with nobody asked.
+///
+/// The code is stored in **plaintext**, unlike RefreshToken's SHA-256 hash,
+/// because the sender has to be able to reopen the Share screen and read it
+/// again; a hash could only ever be shown once. The cost is that a database
+/// leak exposes live codes — bounded by the one-hour expiry, and each code
+/// buys exactly one household. Never log one.
+///
+/// Dead invites are **hard-deleted, not soft-revoked** — the opposite of Share
+/// and RefreshToken, whose `revokedAt` exists to keep history. There is no
+/// history worth keeping here: the Share row a redemption produces already
+/// carries both user ids and a `createdAt`. Expired rows are collected lazily
+/// on the next create, which is the whole garbage collector.
+///
+/// `creatorId` is unique, so "at most one live code per user" is a database
+/// constraint rather than an application check — note the contrast with
+/// Share's one-active-share rule, which spans two columns and therefore
+/// cannot be (see src/sharing.ts).
+model Invite {
+  id Int @id @default(autoincrement())
+  /// Eight digits as a *string*: leading zeros are significant, and an integer
+  /// column would eat them. VarChar(8) for a fixed width, as Budget.month is.
+  code      String   @unique @db.VarChar(8)
+  creatorId Int      @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  creator User @relation(fields: [creatorId], references: [id], onDelete: Cascade)
 }
 
 /// A refresh-token handle for one browser session. The raw token is only ever

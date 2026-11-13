@@ -78,15 +78,28 @@ export type Merchant = {
   categoryId: number | null
 }
 
-/** A household sharing relationship. Its existence *is* the active state —
- *  there is no pending/accepted status yet, since the invite mechanism isn't
- *  built. `budgetOwnerUserId` names whichever member's categories/budgets are
+/** A short-lived code the holder passes to someone out-of-band; the other
+ *  person redeeming it is what creates the Share. Readable for its whole life,
+ *  so the Share screen can show it again — there is deliberately no way to
+ *  refresh one, only to cancel it. */
+export type Invite = {
+  code: string
+  /** ISO timestamp. Rendered as an absolute wall-clock time, never a
+   *  countdown — see SharePage. */
+  expiresAt: string
+}
+
+/** A household sharing relationship. Its existence *is* the active state: the
+ *  pending half lives in `Invite`, and a Share row only ever comes from
+ *  redeeming a code, so a row means both people agreed.
+ *  `budgetOwnerUserId` names whichever member's categories/budgets are
  *  canonical for both; either member can change it. */
 export type Share = {
   id: number
+  /** The *other* member, resolved server-side per request — the two are stored
+   *  as a normalized pair, so neither column is "the partner" on its own. */
   partner: { id: number; firstName: string; lastName: string; email: string }
   budgetOwnerUserId: number
-  isInitiator: boolean
 }
 
 /** One source of income, one-time or recurring — the counterpart to spending.
@@ -392,11 +405,41 @@ export const deleteIncome = (token: string, id: number) =>
 /** The caller's active share, or null. */
 export const getMyShare = (token: string) => request<Share | null>('/api/shares/me', {}, token)
 
-/** Real and working, even though nothing in the UI calls it yet — the invite
- *  *mechanism* (notifying, accepting) is what's not built. Creates an active
- *  share immediately; the caller becomes the initiator. */
-export const createShare = (token: string, partnerEmail: string) =>
-  request<Share>('/api/shares', { method: 'POST', body: JSON.stringify({ partnerEmail }) }, token)
+/** Redeems an invite code, which is the only way a share is ever created — the
+ *  redeeming *is* the consent. The caller becomes the partner; whoever made the
+ *  code is the initiator and keeps their budgets canonical. Rate-limited
+ *  server-side, so 429 is a real answer here; see `shareMessage`. */
+export const createShare = (token: string, code: string) =>
+  request<Share>('/api/shares', { method: 'POST', body: JSON.stringify({ code }) }, token)
+
+/** The caller's live invite code, or null. Idempotent: if they already have a
+ *  live code this returns that one rather than replacing it, so a code already
+ *  passed to someone keeps working. */
+export const createInvite = (token: string) =>
+  request<Invite>('/api/invites', { method: 'POST' }, token)
+
+/** The caller's live invite, or null. Carries the code itself — it is stored in
+ *  plaintext so the sender can reopen the screen and reread it. */
+export const getMyInvite = (token: string) => request<Invite | null>('/api/invites/me', {}, token)
+
+/** Cancels the caller's invite. 204 whether or not there was one. */
+export const cancelInvite = (token: string) =>
+  requestVoid('/api/invites/me', { method: 'DELETE' }, token)
+
+/** Turns an API rejection into something worth showing on the Share screen.
+ *  The raw `ApiError.message` carries the method and path ("POST /api/shares
+ *  failed: 404 — …"), which is right for the unexpected-error banner and wrong
+ *  for a mistyped code. Every error this screen can actually produce has a
+ *  sentence worth reading, so it gets one. */
+export function shareMessage(e: unknown): string {
+  if (e instanceof ApiError) {
+    if (e.status === 404) return 'That code is not valid. Check it and try again.'
+    if (e.status === 429) return 'Too many tries. Wait a few minutes and try again.'
+    if (e.status === 409) return 'One of you is already sharing with someone else.'
+    if (e.status === 400) return 'That code looks wrong — it should be eight digits.'
+  }
+  return e instanceof Error ? e.message : String(e)
+}
 
 /** Either member may change whose budgets are canonical. */
 export const updateShareBudgetOwner = (token: string, id: number, budgetOwnerUserId: number) =>

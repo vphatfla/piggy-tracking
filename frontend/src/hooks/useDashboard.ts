@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  cancelInvite,
   createCategory,
   createIncome,
+  createInvite,
+  createShare,
   createTransaction,
   deleteCategory,
   deleteIncome,
@@ -11,9 +14,11 @@ import {
   getCategories,
   getIncomes,
   getMerchants,
+  getMyInvite,
   getMyShare,
   getReceipts,
   getTransactions,
+  shareMessage,
   updateCategory,
   updateIncome,
   updateRecurringIncomeAmount,
@@ -21,6 +26,7 @@ import {
   type Budget,
   type Category,
   type Income,
+  type Invite,
   type Merchant,
   type Receipt,
   type Session,
@@ -79,6 +85,17 @@ export function useDashboard(session: Session) {
   // null means "no active share" — same sentinel the API itself returns, so
   // there is no separate "loading" state to reconcile with it.
   const [share, setShare] = useState<Share | null>(null)
+  // Lives here rather than in Dashboard.tsx, unlike the other sheet toggles,
+  // because opening the Share sheet triggers a fetch (see the effect below) —
+  // it is no longer inert UI state.
+  const [sharingOpen, setSharingOpen] = useState(false)
+  // The caller's live invite code, same null-means-none sentinel as `share`.
+  const [invite, setInvite] = useState<Invite | null>(null)
+  const [inviteStatus, setInviteStatus] = useState<'idle' | 'saving'>('idle')
+  // Scoped like incomeError: the Share sheet shows its own failures inline
+  // rather than in the page-level banner. A mistyped code is the first error
+  // this screen could ever produce.
+  const [shareError, setShareError] = useState<string | null>(null)
   const [editingBudgets, setEditingBudgets] = useState(false)
   // Whether this user has ever set a budget, at all — not whether the viewed
   // month has one, which is a normal, unrelated empty state. Fetched once
@@ -214,14 +231,45 @@ export function useDashboard(session: Session) {
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
   }, [accessToken])
 
+  // Fetched when the Share sheet *opens*, not once per session like everything
+  // above — a deliberate exception, because an invite is the only resource in
+  // this app that dies on a clock. Sheet stays mounted while closed, so a
+  // once-per-session fetch would have the user reopening the screen an hour
+  // later and reading a code that stopped working. Don't "fix" this back.
+  useEffect(() => {
+    if (!sharingOpen) return
+    getMyInvite(accessToken)
+      .then(setInvite)
+      .catch((e: unknown) => setShareError(shareMessage(e)))
+  }, [accessToken, sharingOpen])
+
+  /** Everything the Share screen refetches after the sharing scope moves.
+   *  `refresh()` already covers receipts/transactions/budgets/incomes; the two
+   *  extras are the ones otherwise fetched once per session and therefore easy
+   *  to forget — the merchant autocomplete is share-scoped (`visibleUserIds`)
+   *  and the first-run budget nudge is owner-scoped (`effectiveBudgetOwnerId`). */
+  function refetchForSharingChange() {
+    return Promise.all([
+      refresh(),
+      getCategories(accessToken).then(setCategories),
+      getMerchants(accessToken).then(setMerchants),
+      getBudgetsExist(accessToken).then((r) => setHasAnyBudgets(r.exists)),
+    ])
+  }
+
   /** Which categories/budgets are canonical actually changes here, unlike an
    *  ordinary transaction write — so, unlike the no-refetch-after-a-write rule
    *  elsewhere in this file, categories and budgets genuinely need re-fetching. */
   async function onChangeBudgetOwner(budgetOwnerUserId: number) {
     if (!share) return
-    setShare(await updateShareBudgetOwner(accessToken, share.id, budgetOwnerUserId))
-    setCategories(await getCategories(accessToken))
-    setBudgets(await getBudgets(accessToken, month))
+    setShareError(null)
+    try {
+      setShare(await updateShareBudgetOwner(accessToken, share.id, budgetOwnerUserId))
+      setCategories(await getCategories(accessToken))
+      setBudgets(await getBudgets(accessToken, month))
+    } catch (e) {
+      setShareError(shareMessage(e))
+    }
   }
 
   /** Ends the share. Non-destructive — see deleteShare's own comment — but
@@ -229,9 +277,61 @@ export function useDashboard(session: Session) {
    *  budgets are re-fetched rather than patched in place. */
   async function onLeaveShare() {
     if (!share) return
-    await deleteShare(accessToken, share.id)
-    setShare(null)
-    await Promise.all([refresh(), getCategories(accessToken).then(setCategories)])
+    setShareError(null)
+    try {
+      await deleteShare(accessToken, share.id)
+      setShare(null)
+      await refetchForSharingChange()
+    } catch (e) {
+      setShareError(shareMessage(e))
+    }
+  }
+
+  /** Mints the invite, or returns the one already live — the server decides,
+   *  and there is deliberately no way to replace a live code. */
+  // Reports whether it worked, like onJoinWithCode, so the Share screen can put
+  // the user back in front of both options instead of leaving them in a half
+  // that has nothing to show.
+  async function onCreateInvite() {
+    setShareError(null)
+    setInviteStatus('saving')
+    try {
+      setInvite(await createInvite(accessToken))
+      return true
+    } catch (e) {
+      setShareError(shareMessage(e))
+      return false
+    } finally {
+      setInviteStatus('idle')
+    }
+  }
+
+  async function onCancelInvite() {
+    setShareError(null)
+    try {
+      await cancelInvite(accessToken)
+      setInvite(null)
+    } catch (e) {
+      setShareError(shareMessage(e))
+    }
+  }
+
+  /** Redeeming is the consent, and it flips both sharing primitives at the same
+   *  moment — `visibleUserIds` pools the transactions while
+   *  `effectiveBudgetOwnerId` hands over the categories and budgets — so this
+   *  refetches rather than patching anything in place. */
+  async function onJoinWithCode(code: string) {
+    setShareError(null)
+    try {
+      setShare(await createShare(accessToken, code))
+      // The code is spent, and the caller cannot hold one while sharing.
+      setInvite(null)
+      await refetchForSharingChange()
+      return true
+    } catch (e) {
+      setShareError(shareMessage(e))
+      return false
+    }
   }
 
   // Returns the row so the caller decides what to select — the add form and an
@@ -570,8 +670,17 @@ export function useDashboard(session: Session) {
     onToggleBudgetEditor,
     refreshBudgets,
     share,
+    sharingOpen,
+    setSharingOpen,
     onChangeBudgetOwner,
     onLeaveShare,
+    invite,
+    inviteStatus,
+    shareError,
+    setShareError,
+    onCreateInvite,
+    onCancelInvite,
+    onJoinWithCode,
     themePref,
     onThemeChange: (pref: ThemePreference) => {
       applyThemePreference(pref)
