@@ -264,3 +264,19 @@ category" check, and every category or budget *write* still resolves through
 stays the single, always-defined write target. The UI labels each category with
 its owner (names collide: both people tend to have "Groceries"), and the budget
 editor lists the other member's categories read-only.
+
+**The trap it opens, and how the dashboard closes it.** Turning the flag off
+does not un-file anything: a transaction filed under the partner's category
+while it was on keeps pointing there, so the client can now hold a transaction
+whose category is not in its own `categories` list. The month breakdown maps
+over `categories`, so that spending has no row of its own — and the
+Uncategorised bucket used to catch only `categoryId === null`, which meant the
+per-category rows silently stopped adding up to the month total. Measured at
+12.50 missing out of 17.50 on a two-user test before the fix.
+
+So the bucket is keyed on **"not in `categories`"** rather than on NULL (see
+`hasBudgetRow` in `useDashboard.ts`), which catches both the deleted-category
+case it was built for and this one. The drill-down shares that single predicate
+deliberately: keying the total and its contents separately is how they drift.
+Anything that adds a third way for a transaction's category to leave the
+client's scope has to pass through the same predicate.

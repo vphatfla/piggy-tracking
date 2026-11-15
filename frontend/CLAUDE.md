@@ -590,10 +590,25 @@ and sign-out.
 
 **Share is the one row that opens a screen**, `SharePage` — a full-screen
 `Sheet`, not a route, since there is no router here. It holds the whole story
-of sharing in one place: with an active share, who it is with, whose budgets
-are canonical, and a way to leave; without one, both halves of starting one —
+of sharing in one place: with an active share, who it is with, which budgets
+are shown, and a way to leave; without one, both halves of starting one —
 generate an 8-digit code to hand over, or enter a code somebody handed you.
 Redeeming is what creates the share.
+
+**"Budgets and categories shown" is a three-way pick: You | Partner | Both.**
+The first two set `budgetOwnerUserId`; "Both" sets `showBothBudgets` and
+deliberately **leaves the owner alone**, because the owner is still the single
+write target — widening the view must not silently move where edits land. So
+under "Both" the non-owner's categories are visible but not editable, and the
+budget editor lists them read-only rather than pretending otherwise. Switching
+the owner is how you edit the other side.
+
+That mode is also why `categoryOwners.ts` exists at the root: both people
+usually have a "Groceries", so a bare name is ambiguous once both sets are on
+screen. It carries a `labelFor` through context — the pickers sit several
+components below the dashboard and all need the same answer — and returns
+`null` when no label is needed (unshared, or showing one member's set), where a
+label would be noise.
 
 Two things in there are deliberate and will look like oversights. The code's
 expiry renders as an **absolute wall-clock time, never a countdown** — `Sheet`

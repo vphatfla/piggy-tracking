@@ -490,12 +490,30 @@ export function useDashboard(session: Session) {
     setExpandedCategoryId(null)
   }
 
+  /** Whether a transaction's category has a budget row of its own to sit on.
+   *  False two ways, and both land in the Uncategorised bucket: the category
+   *  was deleted (NULL), **or** it belongs to the share partner and the share
+   *  has stopped showing their set — a transaction filed under their category
+   *  while `showBothBudgets` was on outlives turning it back off. Keyed on
+   *  presence in `categories` rather than on NULL, because `budgetRows` maps
+   *  over `categories` and anything missing from it has nowhere else to appear.
+   *  The single predicate is what keeps the bucket's total and its drill-down
+   *  from disagreeing. */
+  const shownCategoryIds = new Set(categories.map((c) => c.id))
+  const hasBudgetRow = (categoryId: number | null) =>
+    categoryId !== null && shownCategoryIds.has(categoryId)
+
   // Same shape as receiptFor below: a plain per-render lookup, not memoised —
   // one month's rows are a handful, scanning them costs nothing. Fixed
   // date-desc, matching the "a drill-down doesn't need its own sort" call.
+  //
+  // `null` means the Uncategorised bucket, not literally "categoryId IS NULL" —
+  // see hasBudgetRow. It is only ever called that way for that bucket.
   function transactionsForCategory(categoryId: number | null) {
     return sortTransactions(
-      transactions.filter((t) => t.categoryId === categoryId),
+      transactions.filter((t) =>
+        categoryId === null ? !hasBudgetRow(t.categoryId) : t.categoryId === categoryId,
+      ),
       { key: 'date', dir: 'desc' },
     )
   }
@@ -630,10 +648,13 @@ export function useDashboard(session: Session) {
     .map((c) => ({ category: c, spent: spent.get(c.id) ?? 0, budget: budgets.find((b) => b.categoryId === c.id) }))
     .filter((r) => r.spent > 0 || r.budget)
     .sort((a, b) => b.spent - a.spent || a.category.name.localeCompare(b.category.name))
-  // Spending whose category was deleted. Surfaced rather than dropped: it is
-  // real money, it sits outside every budget line, and without it the rows
-  // above visibly fail to add up to the month total.
-  const uncategorised = spent.get(null) ?? 0
+  // Spending with no budget row above to sit on — surfaced rather than
+  // dropped: it is real money, and without it the rows visibly fail to add up
+  // to the month total. Same predicate the drill-down uses, so the two agree.
+  let uncategorised = 0
+  for (const [categoryId, amount] of spent) {
+    if (!hasBudgetRow(categoryId)) uncategorised += amount
+  }
 
   const receiptFor = (id: number | null) => receipts.find((r) => r.id === id)
   const total = sumMoney(transactions.map((t) => t.amount))

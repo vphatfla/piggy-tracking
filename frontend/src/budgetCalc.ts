@@ -7,7 +7,10 @@ import type { Transaction } from './api'
  *
  *  The NULL key is not an oversight: rows whose category was deleted sit
  *  outside every budget line, and dropping them would make the per-category
- *  numbers quietly fail to sum to the month total. **Move this to
+ *  numbers quietly fail to sum to the month total. NULL is not the only key
+ *  that can land outside those lines, though — see `hasBudgetRow` in
+ *  useDashboard.ts, which is what decides. Keep this map keyed on the raw
+ *  `categoryId` and let that predicate judge. **Move this to
  *  GET /api/transactions/summary the day a month's rows get paginated** — the
  *  same day sortTransactions has to move server-side, and for the same reason. */
 export function spendByCategory(transactions: Transaction[]) {
