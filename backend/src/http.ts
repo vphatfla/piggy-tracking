@@ -51,6 +51,15 @@ export function optionalInt(body: unknown, field: string): number | null {
   return value as number
 }
 
+/** Absent (or null) is "not provided", so a PATCH can send only the field it
+ *  changes; anything present must be a real boolean, not "true" or 1. */
+export function optionalBoolean(body: unknown, field: string): boolean | null {
+  const value = (body as Record<string, unknown> | null)?.[field]
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'boolean') throw badRequest(`${field} must be a boolean`)
+  return value
+}
+
 /** Accepts a number or a numeric string and returns a Decimal-safe string with
  *  at most 2 decimal places, matching the DECIMAL(10,2) columns. */
 export function requiredMoney(body: unknown, field: string): Prisma.Decimal {

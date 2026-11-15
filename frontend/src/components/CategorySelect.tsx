@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Category } from '../api'
+import { useCategoryOwners } from '../categoryOwners'
 import { inputClasses } from '../ui'
 import { ChevronDown } from './icons'
 
@@ -24,6 +25,14 @@ export function CategorySelect({
 }) {
   const [draft, setDraft] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const { labelFor } = useCategoryOwners()
+  // Only populated while a share shows both members' categories; otherwise
+  // every label is null and the list stays flat, exactly as before.
+  const groups = new Map<string, Category[]>()
+  for (const c of categories) {
+    const label = labelFor(c) ?? ''
+    groups.set(label, [...(groups.get(label) ?? []), c])
+  }
 
   async function save() {
     const name = draft?.trim()
@@ -96,11 +105,20 @@ export function CategorySelect({
         className={`${inputClasses} min-h-11 w-full appearance-none pr-9`}
       >
         {value === null && <option value="">Category</option>}
-        {categories.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.name}
-          </option>
-        ))}
+        {[...groups].map(([label, group]) => {
+          const options = group.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))
+          return label ? (
+            <optgroup key={label} label={label}>
+              {options}
+            </optgroup>
+          ) : (
+            options
+          )
+        })}
         <option value={NEW_CATEGORY}>+ New category…</option>
       </select>
       <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-label-tertiary">

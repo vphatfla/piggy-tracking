@@ -100,6 +100,9 @@ export type Share = {
    *  as a normalized pair, so neither column is "the partner" on its own. */
   partner: { id: number; firstName: string; lastName: string; email: string }
   budgetOwnerUserId: number
+  /** When true, both members' categories and budgets are returned (read-only
+   *  for the non-owner's; writes still go to `budgetOwnerUserId`). */
+  showBothBudgets: boolean
 }
 
 /** One source of income, one-time or recurring — the counterpart to spending.
@@ -441,13 +444,13 @@ export function shareMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
 
-/** Either member may change whose budgets are canonical. */
-export const updateShareBudgetOwner = (token: string, id: number, budgetOwnerUserId: number) =>
-  request<Share>(
-    `/api/shares/${id}`,
-    { method: 'PATCH', body: JSON.stringify({ budgetOwnerUserId }) },
-    token,
-  )
+/** Either member may change whose budgets are the write target and whether
+ *  both members' are shown. Send only the fields that change. */
+export const updateShare = (
+  token: string,
+  id: number,
+  patch: { budgetOwnerUserId?: number; showBothBudgets?: boolean },
+) => request<Share>(`/api/shares/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }, token)
 
 /** Ends the share. Non-destructive on both sides: nothing was migrated when
  *  the share was created, so nothing needs to be undone here either. 204. */

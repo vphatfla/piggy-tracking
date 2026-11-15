@@ -9,7 +9,7 @@ import {
 } from '../http.ts'
 import { authedUserId, requireAuth } from '../middleware/auth.ts'
 import { prisma } from '../prisma.ts'
-import { effectiveBudgetOwnerId } from '../sharing.ts'
+import { budgetScope, effectiveBudgetOwnerId } from '../sharing.ts'
 
 export const budgetsRouter = Router()
 
@@ -48,7 +48,7 @@ async function ownedCategory(userId: number, categoryId: number) {
 budgetsRouter.get('/exists', async (req, res, next) => {
   try {
     const budget = await prisma.budget.findFirst({
-      where: { userId: await effectiveBudgetOwnerId(authedUserId(req)) },
+      where: { userId: { in: (await budgetScope(authedUserId(req))).userIds } },
       select: { id: true },
     })
     res.json({ exists: budget !== null })
@@ -72,7 +72,9 @@ budgetsRouter.get('/', async (req, res, next) => {
     const month = requiredMonth(req.query, 'month')
 
     const rows = await prisma.budget.findMany({
-      where: { userId: await effectiveBudgetOwnerId(authedUserId(req)), month: { lte: month } },
+      // Reads span both members under `showBothBudgets`. categoryId is unique
+      // across users, so the per-category map below needs no change.
+      where: { userId: { in: (await budgetScope(authedUserId(req))).userIds }, month: { lte: month } },
       // Ascending, so a later row for the same category simply overwrites the
       // earlier one in the map below and the last write wins.
       orderBy: { month: 'asc' },

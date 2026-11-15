@@ -211,6 +211,12 @@ model Income {
 /// Note that default is the only remaining trace of who started the share —
 /// there is no initiator column, because nothing needed one.
 ///
+/// `showBothBudgets` widens what is *read*: when true, both members'
+/// Category/Budget rows are returned, and a transaction may be filed under
+/// either member's category. It does not widen what is *written* — creating,
+/// renaming or deleting a category and setting a limit still go to
+/// `budgetOwnerUserId` only, so the owner stays the one write target.
+///
 /// **The two members are stored normalized**: `userLoId` always holds the
 /// lesser user id. That is what makes `@@unique([userLoId, userHiId])` mean
 /// "these two share at most once", rather than only catching one of the two
@@ -234,6 +240,7 @@ model Share {
   /// The greater of the two member ids.
   userHiId          Int
   budgetOwnerUserId Int
+  showBothBudgets   Boolean  @default(false)
   createdAt         DateTime @default(now())
 
   userLo      User @relation("ShareUserLo", fields: [userLoId], references: [id], onDelete: Cascade)

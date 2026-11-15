@@ -22,7 +22,7 @@ import {
   updateCategory,
   updateIncome,
   updateRecurringIncomeAmount,
-  updateShareBudgetOwner,
+  updateShare,
   type Budget,
   type Category,
   type Income,
@@ -257,16 +257,18 @@ export function useDashboard(session: Session) {
     ])
   }
 
-  /** Which categories/budgets are canonical actually changes here, unlike an
-   *  ordinary transaction write — so, unlike the no-refetch-after-a-write rule
-   *  elsewhere in this file, categories and budgets genuinely need re-fetching. */
-  async function onChangeBudgetOwner(budgetOwnerUserId: number) {
+  /** Which categories/budgets are shown, and which member is the write target,
+   *  actually change here — so, unlike the no-refetch-after-a-write rule
+   *  elsewhere in this file, categories and budgets genuinely need re-fetching.
+   *  The first-run nudge is scope-based too, so it is refreshed with them. */
+  async function onChangeBudgetView(patch: { budgetOwnerUserId?: number; showBothBudgets?: boolean }) {
     if (!share) return
     setShareError(null)
     try {
-      setShare(await updateShareBudgetOwner(accessToken, share.id, budgetOwnerUserId))
+      setShare(await updateShare(accessToken, share.id, patch))
       setCategories(await getCategories(accessToken))
       setBudgets(await getBudgets(accessToken, month))
+      setHasAnyBudgets((await getBudgetsExist(accessToken)).exists)
     } catch (e) {
       setShareError(shareMessage(e))
     }
@@ -488,12 +490,30 @@ export function useDashboard(session: Session) {
     setExpandedCategoryId(null)
   }
 
+  /** Whether a transaction's category has a budget row of its own to sit on.
+   *  False two ways, and both land in the Uncategorised bucket: the category
+   *  was deleted (NULL), **or** it belongs to the share partner and the share
+   *  has stopped showing their set — a transaction filed under their category
+   *  while `showBothBudgets` was on outlives turning it back off. Keyed on
+   *  presence in `categories` rather than on NULL, because `budgetRows` maps
+   *  over `categories` and anything missing from it has nowhere else to appear.
+   *  The single predicate is what keeps the bucket's total and its drill-down
+   *  from disagreeing. */
+  const shownCategoryIds = new Set(categories.map((c) => c.id))
+  const hasBudgetRow = (categoryId: number | null) =>
+    categoryId !== null && shownCategoryIds.has(categoryId)
+
   // Same shape as receiptFor below: a plain per-render lookup, not memoised —
   // one month's rows are a handful, scanning them costs nothing. Fixed
   // date-desc, matching the "a drill-down doesn't need its own sort" call.
+  //
+  // `null` means the Uncategorised bucket, not literally "categoryId IS NULL" —
+  // see hasBudgetRow. It is only ever called that way for that bucket.
   function transactionsForCategory(categoryId: number | null) {
     return sortTransactions(
-      transactions.filter((t) => t.categoryId === categoryId),
+      transactions.filter((t) =>
+        categoryId === null ? !hasBudgetRow(t.categoryId) : t.categoryId === categoryId,
+      ),
       { key: 'date', dir: 'desc' },
     )
   }
@@ -607,6 +627,19 @@ export function useDashboard(session: Session) {
     return categories[0]?.id ?? null
   })()
 
+  // Who writes land on, and — only while the share shows both members' sets —
+  // a label per category owner. Categories the caller may not edit (the other
+  // member's, in Both mode) are what the budget editor lists read-only.
+  const budgetOwnerId = share?.budgetOwnerUserId ?? user.id
+  const ownerLabels =
+    share?.showBothBudgets
+      ? new Map<number, string>([
+          [user.id, 'You'],
+          [share.partner.id, share.partner.firstName],
+        ])
+      : null
+  const categoryOwnerLabel = (c: Category) => ownerLabels?.get(c.userId) ?? null
+
   const spent = spendByCategory(transactions)
   // Shown for a category with a limit or with spending — one with neither is
   // noise in a month it played no part in. Ordered by spend, because the
@@ -615,10 +648,13 @@ export function useDashboard(session: Session) {
     .map((c) => ({ category: c, spent: spent.get(c.id) ?? 0, budget: budgets.find((b) => b.categoryId === c.id) }))
     .filter((r) => r.spent > 0 || r.budget)
     .sort((a, b) => b.spent - a.spent || a.category.name.localeCompare(b.category.name))
-  // Spending whose category was deleted. Surfaced rather than dropped: it is
-  // real money, it sits outside every budget line, and without it the rows
-  // above visibly fail to add up to the month total.
-  const uncategorised = spent.get(null) ?? 0
+  // Spending with no budget row above to sit on — surfaced rather than
+  // dropped: it is real money, and without it the rows visibly fail to add up
+  // to the month total. Same predicate the drill-down uses, so the two agree.
+  let uncategorised = 0
+  for (const [categoryId, amount] of spent) {
+    if (!hasBudgetRow(categoryId)) uncategorised += amount
+  }
 
   const receiptFor = (id: number | null) => receipts.find((r) => r.id === id)
   const total = sumMoney(transactions.map((t) => t.amount))
@@ -672,7 +708,9 @@ export function useDashboard(session: Session) {
     share,
     sharingOpen,
     setSharingOpen,
-    onChangeBudgetOwner,
+    onChangeBudgetView,
+    budgetOwnerId,
+    categoryOwnerLabel,
     onLeaveShare,
     invite,
     inviteStatus,

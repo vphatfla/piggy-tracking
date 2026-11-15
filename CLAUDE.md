@@ -136,8 +136,11 @@ Shipped: spending dates, the month view with optional sorting, categories with
 an inline-create picker (renamed and deleted from the budget editor),
 tap-to-expand editing and deletion, per-category monthly budgets with a
 spent-vs-limit breakdown, household sharing (pairwise, transactions pooled
-and jointly editable, categories/budgets canonical-merged — see the `Share`
-model and `src/sharing.ts`), and income tracking — one-time or recurring,
+and jointly editable, categories/budgets canonical-merged — or *both* sets
+shown at once with `Share.showBothBudgets`, which widens reads only: writes
+still land on `budgetOwnerUserId` alone, so there is one write target and no
+cross-user edit path. See the `Share` model, `src/sharing.ts`, and
+`docs/sharing.md`), and income tracking — one-time or recurring,
 visible to a share partner but never merged or partner-editable (the
 opposite call from budgets; see `docs/income.md`), and merchant autocomplete in
 the add form — suggestions drawn from the pooled history, where accepting one

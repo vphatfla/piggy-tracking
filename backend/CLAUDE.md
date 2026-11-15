@@ -138,6 +138,15 @@ Nine models. See `prisma/schema.prisma` for the authoritative definition.
   share-aware route calls through — see `src/routes/shares.ts` and the
   model's own doc-comment in `schema.prisma` for the full shape.
 
+  **`showBothBudgets` widens reads, never writes.** When true, `budgetScope(userId)`
+  returns both members' ids and GET `/api/categories`, GET `/api/budgets` and
+  `/exists` return both sets (each category carries its `userId`, which is how
+  the client groups them); a transaction may be filed under either member's
+  category. Creating, renaming and deleting categories and setting limits still
+  resolve through `effectiveBudgetOwnerId` alone — the other member's rows are
+  404 on those routes by design, so there is one write target and no
+  cross-user edit path. Switching the owner is how you edit the other side.
+
   **The two members are stored normalized** — `userLoId` always holds the
   lesser user id — so `@@unique([userLoId, userHiId])` means "these two share
   at most once" instead of catching only one of the two orderings. Neither

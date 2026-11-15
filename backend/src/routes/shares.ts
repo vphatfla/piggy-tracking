@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { Prisma } from '../generated/prisma/client.ts'
-import { badRequest, HttpError, parseIdParam, requiredCode, requiredInt } from '../http.ts'
+import { badRequest, HttpError, optionalBoolean, optionalInt, parseIdParam, requiredCode } from '../http.ts'
 import { invalidInvite } from '../invites.ts'
 import { authedUserId, requireAuth } from '../middleware/auth.ts'
 import { rateLimit } from '../middleware/rateLimit.ts'
@@ -20,7 +20,7 @@ type Member = { id: number; firstName: string; lastName: string; email: string }
  *  be: the pair is stored normalized, so which column a given caller occupies
  *  depends only on which of the two user ids is smaller. */
 function serializeShare(
-  share: { id: number; userLoId: number; budgetOwnerUserId: number },
+  share: { id: number; userLoId: number; budgetOwnerUserId: number; showBothBudgets: boolean },
   callerId: number,
   members: { userLo: Member; userHi: Member },
 ) {
@@ -28,6 +28,7 @@ function serializeShare(
     id: share.id,
     partner: share.userLoId === callerId ? members.userHi : members.userLo,
     budgetOwnerUserId: share.budgetOwnerUserId,
+    showBothBudgets: share.showBothBudgets,
   }
 }
 
@@ -147,26 +148,39 @@ sharesRouter.post('/', redeemLimiter, async (req, res, next) => {
   }
 })
 
-// PATCH /api/shares/:id  { budgetOwnerUserId }
+// PATCH /api/shares/:id  { budgetOwnerUserId?, showBothBudgets? }
 //
-// Either member may change whose budgets are canonical. There is no asymmetry
-// between the two to respect — the sender's default at creation is the only
-// place one ever existed.
+// Either member may change whose budgets are the write target, and whether both
+// members' are shown. There is no asymmetry between the two to respect — the
+// sender's default at creation is the only place one ever existed. Each field
+// is optional so "show both" can be toggled without restating the owner, but
+// an empty patch is a caller mistake, not a no-op worth pretending to honour.
 sharesRouter.patch('/:id', async (req, res, next) => {
   try {
     const userId = authedUserId(req)
     const id = parseIdParam(req.params.id)
-    const budgetOwnerUserId = requiredInt(req.body, 'budgetOwnerUserId')
+    const budgetOwnerUserId = optionalInt(req.body, 'budgetOwnerUserId')
+    const showBothBudgets = optionalBoolean(req.body, 'showBothBudgets')
+    if (budgetOwnerUserId === null && showBothBudgets === null) {
+      throw badRequest('Provide budgetOwnerUserId and/or showBothBudgets')
+    }
 
     const share = await prisma.share.findFirst({ where: { id, ...activeShareWhere([userId]) } })
     if (!share) throw new HttpError(404, `No active share with id ${id}`)
-    if (budgetOwnerUserId !== share.userLoId && budgetOwnerUserId !== share.userHiId) {
+    if (
+      budgetOwnerUserId !== null &&
+      budgetOwnerUserId !== share.userLoId &&
+      budgetOwnerUserId !== share.userHiId
+    ) {
       throw badRequest('budgetOwnerUserId must be one of the two members of this share')
     }
 
     const updated = await prisma.share.update({
       where: { id },
-      data: { budgetOwnerUserId },
+      data: {
+        ...(budgetOwnerUserId !== null && { budgetOwnerUserId }),
+        ...(showBothBudgets !== null && { showBothBudgets }),
+      },
       include: shareMembers,
     })
     res.json(serializeShare(updated, userId, updated))

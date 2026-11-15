@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { HttpError, parseIdParam, requiredString } from '../http.ts'
 import { authedUserId, requireAuth } from '../middleware/auth.ts'
 import { prisma } from '../prisma.ts'
-import { effectiveBudgetOwnerId } from '../sharing.ts'
+import { budgetScope, effectiveBudgetOwnerId } from '../sharing.ts'
 
 export const categoriesRouter = Router()
 
@@ -19,8 +19,11 @@ categoriesRouter.use(requireAuth)
 categoriesRouter.get('/', async (req, res, next) => {
   try {
     const categories = await prisma.category.findMany({
-      where: { userId: await effectiveBudgetOwnerId(authedUserId(req)) },
-      orderBy: { name: 'asc' },
+      // Both members' rows when the share shows both; each row carries its
+      // `userId`, which is how the client groups them. Writes below stay on
+      // the budget owner alone.
+      where: { userId: { in: (await budgetScope(authedUserId(req))).userIds } },
+      orderBy: [{ name: 'asc' }, { userId: 'asc' }],
     })
     res.json(categories)
   } catch (err) {
