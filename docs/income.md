@@ -81,7 +81,8 @@ model Income {
   can see the row (for the household total) but never edit or delete it.
   This is a third sharing behavior, distinct from both existing ones in
   `sharing.ts`:
-  - `effectiveBudgetOwnerId` — fully merged (Category/Budget)
+  - `effectiveBudgetOwnerId` — fully merged (Category/Budget); reads can span
+    both members when the share has `showBothBudgets`, writes never do
   - `visibleUserIds` on both read and write — visible **and** jointly
     editable (Transaction)
   - Income — `visibleUserIds` on read only, `authedUserId` on write: visible

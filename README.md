@@ -102,7 +102,7 @@ main does not deploy anything.
 | POST   | `/api/invites`           | bearer | Your live invite code, minting one if you have none. Idempotent while live — there is no refresh. `409` if you are already sharing |
 | GET    | `/api/invites/me`        | bearer | `{ code, expiresAt }`, or `null`                      |
 | DELETE | `/api/invites/me`        | bearer | `204`. Cancels your invite, whether or not you had one |
-| PATCH  | `/api/shares/:id`        | bearer | `{ budgetOwnerUserId }` — picks which member's categories/budgets are canonical |
+| PATCH  | `/api/shares/:id`        | bearer | `{ budgetOwnerUserId?, showBothBudgets? }` — picks which member's categories/budgets are the write target, and whether both members' are shown |
 | DELETE | `/api/shares/:id`        | bearer | `204`. Revokes the share; no rows migrate back        |
 | GET    | `/api/incomes`           | bearer | `?month=YYYY-MM` (required) — income effective that month, for the caller and any share partner |
 | POST   | `/api/incomes`           | bearer | `{ source, amount, type: "ONE_TIME"\|"RECURRING", month }` |
@@ -240,7 +240,8 @@ Eight tables. Three come from the `replace_note_with_core_models` migration:
 
 - **Share** — pairwise household sharing: its existence is the active state,
   there is no pending/accepted status. `budgetOwnerUserId` names whichever
-  member's categories and budgets are canonical for both. A user may have at
+  member's categories and budgets are canonical for both (`showBothBudgets`
+  additionally shows both sets, read-only for the non-owner's). A user may have at
   most one active share. See `backend/CLAUDE.md`.
 
 - **Income** — a user's income, one-time or recurring. Visible to a share

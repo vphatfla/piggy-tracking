@@ -40,6 +40,18 @@ export async function visibleUserIds(userId: number): Promise<number[]> {
   return [share.userLoId, share.userHiId]
 }
 
+/** Which users' Category/Budget rows a caller may *read*, and which one of them
+ *  is the write target. Unshared: just themself. Shared: the budget owner, or
+ *  both members when the share has `showBothBudgets` on. `ownerId` is always
+ *  `effectiveBudgetOwnerId` and is the only id a write may use; `userIds` only
+ *  widens reads and the "may a transaction be filed here" check. */
+export async function budgetScope(userId: number): Promise<{ ownerId: number; userIds: number[] }> {
+  const share = await activeShare(userId)
+  if (!share) return { ownerId: userId, userIds: [userId] }
+  const ownerId = share.budgetOwnerUserId
+  return { ownerId, userIds: share.showBothBudgets ? [share.userLoId, share.userHiId] : [ownerId] }
+}
+
 /** Whose Category/Budget rows are canonical for this caller. Unshared, that
  *  is themself; under an active share, whichever member `budgetOwnerUserId`
  *  names — "there should only be one budget type" from a share, not two

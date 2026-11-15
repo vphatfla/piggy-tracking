@@ -22,7 +22,7 @@ export function SharePage({
   onClose,
   user,
   share,
-  onChangeBudgetOwner,
+  onChangeBudgetView,
   onLeaveShare,
   invite,
   inviteStatus,
@@ -35,7 +35,7 @@ export function SharePage({
   onClose: () => void
   user: UserProfile
   share: Share | null
-  onChangeBudgetOwner: (budgetOwnerUserId: number) => Promise<void>
+  onChangeBudgetView: (patch: { budgetOwnerUserId?: number; showBothBudgets?: boolean }) => Promise<void>
   onLeaveShare: () => Promise<void>
   invite: Invite | null
   inviteStatus: 'idle' | 'saving'
@@ -162,29 +162,47 @@ export function SharePage({
             <div className="mx-4 border-t border-separator" />
 
             <div className="px-4 py-3">
-              <p className="text-footnote text-label-secondary">Budgets and categories come from</p>
+              <p className="text-footnote text-label-secondary">Budgets and categories shown</p>
               <div className="mt-2 flex gap-2">
                 {[
-                  { id: user.id, label: 'You' },
-                  { id: share.partner.id, label: share.partner.firstName },
+                  {
+                    key: 'you',
+                    label: 'You',
+                    selected: !share.showBothBudgets && share.budgetOwnerUserId === user.id,
+                    patch: { budgetOwnerUserId: user.id, showBothBudgets: false },
+                  },
+                  {
+                    key: 'partner',
+                    label: share.partner.firstName,
+                    selected: !share.showBothBudgets && share.budgetOwnerUserId === share.partner.id,
+                    patch: { budgetOwnerUserId: share.partner.id, showBothBudgets: false },
+                  },
+                  // Leaves the owner alone: "both" widens what is shown, and
+                  // the last single pick stays the one writes land on.
+                  { key: 'both', label: 'Both', selected: share.showBothBudgets, patch: { showBothBudgets: true } },
                 ].map((opt) => (
                   <button
-                    key={opt.id}
+                    key={opt.key}
                     type="button"
                     role="radio"
-                    aria-checked={share.budgetOwnerUserId === opt.id}
-                    onClick={() => void onChangeBudgetOwner(opt.id)}
+                    aria-checked={opt.selected}
+                    onClick={() => void onChangeBudgetView(opt.patch)}
                     className={`flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-full px-4 text-subheadline font-semibold transition-colors duration-200 ease-out focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none ${
-                      share.budgetOwnerUserId === opt.id
-                        ? 'bg-accent/12 text-accent-text'
-                        : 'text-label-secondary hover:bg-surface'
+                      opt.selected ? 'bg-accent/12 text-accent-text' : 'text-label-secondary hover:bg-surface'
                     }`}
                   >
-                    {share.budgetOwnerUserId === opt.id && <CheckIcon />}
+                    {opt.selected && <CheckIcon />}
                     {opt.label}
                   </button>
                 ))}
               </div>
+              {share.showBothBudgets && (
+                <p className="mt-2 text-footnote text-label-tertiary">
+                  New categories and limits are added to{' '}
+                  {share.budgetOwnerUserId === user.id ? 'your' : `${share.partner.firstName}'s`} set. Pick{' '}
+                  {share.budgetOwnerUserId === user.id ? 'You' : share.partner.firstName}, then Both, to change that.
+                </p>
+              )}
             </div>
 
             <div className="mx-4 border-t border-separator" />

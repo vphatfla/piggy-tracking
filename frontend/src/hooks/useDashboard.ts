@@ -22,7 +22,7 @@ import {
   updateCategory,
   updateIncome,
   updateRecurringIncomeAmount,
-  updateShareBudgetOwner,
+  updateShare,
   type Budget,
   type Category,
   type Income,
@@ -257,16 +257,18 @@ export function useDashboard(session: Session) {
     ])
   }
 
-  /** Which categories/budgets are canonical actually changes here, unlike an
-   *  ordinary transaction write — so, unlike the no-refetch-after-a-write rule
-   *  elsewhere in this file, categories and budgets genuinely need re-fetching. */
-  async function onChangeBudgetOwner(budgetOwnerUserId: number) {
+  /** Which categories/budgets are shown, and which member is the write target,
+   *  actually change here — so, unlike the no-refetch-after-a-write rule
+   *  elsewhere in this file, categories and budgets genuinely need re-fetching.
+   *  The first-run nudge is scope-based too, so it is refreshed with them. */
+  async function onChangeBudgetView(patch: { budgetOwnerUserId?: number; showBothBudgets?: boolean }) {
     if (!share) return
     setShareError(null)
     try {
-      setShare(await updateShareBudgetOwner(accessToken, share.id, budgetOwnerUserId))
+      setShare(await updateShare(accessToken, share.id, patch))
       setCategories(await getCategories(accessToken))
       setBudgets(await getBudgets(accessToken, month))
+      setHasAnyBudgets((await getBudgetsExist(accessToken)).exists)
     } catch (e) {
       setShareError(shareMessage(e))
     }
@@ -607,6 +609,19 @@ export function useDashboard(session: Session) {
     return categories[0]?.id ?? null
   })()
 
+  // Who writes land on, and — only while the share shows both members' sets —
+  // a label per category owner. Categories the caller may not edit (the other
+  // member's, in Both mode) are what the budget editor lists read-only.
+  const budgetOwnerId = share?.budgetOwnerUserId ?? user.id
+  const ownerLabels =
+    share?.showBothBudgets
+      ? new Map<number, string>([
+          [user.id, 'You'],
+          [share.partner.id, share.partner.firstName],
+        ])
+      : null
+  const categoryOwnerLabel = (c: Category) => ownerLabels?.get(c.userId) ?? null
+
   const spent = spendByCategory(transactions)
   // Shown for a category with a limit or with spending — one with neither is
   // noise in a month it played no part in. Ordered by spend, because the
@@ -672,7 +687,9 @@ export function useDashboard(session: Session) {
     share,
     sharingOpen,
     setSharingOpen,
-    onChangeBudgetOwner,
+    onChangeBudgetView,
+    budgetOwnerId,
+    categoryOwnerLabel,
     onLeaveShare,
     invite,
     inviteStatus,

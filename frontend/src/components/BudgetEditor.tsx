@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { deleteBudget, getBudgets, putBudget, type Budget, type Category } from '../api'
-import { cents } from '../format'
+import { categoryDisplayName, useCategoryOwners } from '../categoryOwners'
+import { cents, formatMoney } from '../format'
 import { addMonths, formatMonthLabel } from '../month'
 import { inputClasses } from '../ui'
 import { MinusCircleIcon } from './icons'
@@ -28,6 +29,7 @@ export function BudgetEditor({
   token,
   month,
   categories,
+  readOnlyCategories,
   budgets,
   transactionCount,
   onRenameCategory,
@@ -38,6 +40,10 @@ export function BudgetEditor({
   token: string
   month: string
   categories: Category[]
+  /** The other member's categories while a share shows both sets: listed with
+   *  their limits but not editable, since writes only ever go to the budget
+   *  owner. To change them, switch the owner on the Share screen. */
+  readOnlyCategories: Category[]
   budgets: Budget[]
   /** How many of the viewed month's transactions are filed under a category —
    *  context for the delete confirmation, which is not limited to this month. */
@@ -47,6 +53,7 @@ export function BudgetEditor({
   onSaved: () => Promise<void>
   onCancel: () => void
 }) {
+  const { labelFor } = useCategoryOwners()
   // Initialised on mount, so Cancel discards edits for free — same trick as
   // EditPanel. An inherited limit is seeded as a real value rather than a
   // placeholder: it *is* the number in force, and it should read as one.
@@ -188,6 +195,17 @@ export function BudgetEditor({
             Add a category first — budgets are set per category.
           </li>
         )}
+        {readOnlyCategories.map((c) => {
+          const limit = budgets.find((b) => b.categoryId === c.id)
+          return (
+            <li key={c.id} className="flex items-center justify-between gap-3 px-3 py-2 text-label-secondary">
+              <span className="min-w-0 truncate text-subheadline">{categoryDisplayName(c, labelFor(c))}</span>
+              <span className="shrink-0 text-subheadline tabular-nums">
+                {limit ? formatMoney(limit.amount) : 'No limit'}
+              </span>
+            </li>
+          )
+        })}
       </ul>
 
       {error && (

@@ -252,3 +252,15 @@ would have broken both.
 - **The expiry is rendered as an absolute wall-clock time**, never a countdown.
   A countdown needs a timer inside a sheet that stays mounted, and would still
   be read stale.
+
+## Showing both members' budgets (`showBothBudgets`)
+
+`Share.showBothBudgets` (default false) lets both people see both category
+sets at once instead of flipping `budgetOwnerUserId` back and forth. It is a
+**read** widening only: `budgetScope()` in `src/sharing.ts` returns both ids for
+the category/budget GETs and for the "may a transaction be filed under this
+category" check, and every category or budget *write* still resolves through
+`effectiveBudgetOwnerId`. A flag rather than a nullable owner, so the owner
+stays the single, always-defined write target. The UI labels each category with
+its owner (names collide: both people tend to have "Groceries"), and the budget
+editor lists the other member's categories read-only.

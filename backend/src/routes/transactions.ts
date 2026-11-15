@@ -14,7 +14,7 @@ import {
 } from '../http.ts'
 import { authedUserId, requireAuth } from '../middleware/auth.ts'
 import { prisma } from '../prisma.ts'
-import { effectiveBudgetOwnerId, visibleUserIds } from '../sharing.ts'
+import { budgetScope, visibleUserIds } from '../sharing.ts'
 
 export const transactionsRouter = Router()
 
@@ -117,7 +117,7 @@ transactionsRouter.post('/', async (req, res, next) => {
     // budget owner, not the caller directly — a shared category belongs to
     // whichever member is `budgetOwnerUserId`, not necessarily the poster.
     const categoryId = requiredInt(req.body, 'categoryId')
-    const category = await ownedCategory(await effectiveBudgetOwnerId(userId), categoryId)
+    const category = await usableCategory(userId, categoryId)
 
     // receiptId is the one field that could still point across users, so it is
     // checked explicitly — the FK alone only proves the receipt exists. Widened
@@ -158,11 +158,14 @@ transactionsRouter.post('/', async (req, res, next) => {
   }
 })
 
-/** Resolves a category the caller is allowed to use, or throws. Shared by POST
- *  and PATCH: the foreign key proves the category exists, not whose it is. */
-async function ownedCategory(userId: number, categoryId: number) {
+/** Resolves a category the caller may file a transaction under, or throws.
+ *  Shared by POST and PATCH: the foreign key proves the category exists, not
+ *  whose it is. "May file under" is the share's read scope — the budget owner's
+ *  categories, or both members' when the share shows both — which is wider than
+ *  who may edit the category (the owner only; see categories.ts). */
+async function usableCategory(userId: number, categoryId: number) {
   const category = await prisma.category.findFirst({
-    where: { id: categoryId, userId },
+    where: { id: categoryId, userId: { in: (await budgetScope(userId)).userIds } },
     select: { id: true, name: true },
   })
   if (!category) throw new HttpError(404, `No category with id ${categoryId}`)
@@ -197,7 +200,7 @@ transactionsRouter.patch('/:id', async (req, res, next) => {
       data.categoryId =
         body.categoryId === null
           ? null
-          : (await ownedCategory(await effectiveBudgetOwnerId(userId), requiredInt(body, 'categoryId'))).id
+          : (await usableCategory(userId, requiredInt(body, 'categoryId'))).id
     }
 
     if ('receiptId' in body) {
