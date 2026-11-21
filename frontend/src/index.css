@@ -148,6 +148,15 @@
 }
 
 @layer base {
+  /* Stops Safari's native rubber-band bounce at the top of the page from
+     fighting the custom pull-to-refresh visual in PullToRefreshBanner —
+     without this the page still bounces on its own while the pull indicator
+     tracks the same gesture, reading as two competing animations. */
+  html,
+  body {
+    overscroll-behavior-y: contain;
+  }
+
   body {
     background-color: var(--color-bg);
     color: var(--color-label);

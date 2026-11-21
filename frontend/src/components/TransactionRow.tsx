@@ -19,6 +19,7 @@ export function TransactionRow({
   onSaved,
   onDeleted,
   showOwner,
+  highlighted,
 }: {
   transaction: Transaction
   index: number
@@ -35,13 +36,19 @@ export function TransactionRow({
    *  the transaction, but showing "You" on every row of an unshared account
    *  would be noise with nothing to distinguish it from. */
   showOwner: boolean
+  /** Briefly true right after this row is added, so Dashboard.tsx can
+   *  scroll it into view and have it announce itself visually without a
+   *  second, separate toast. Fades on its own via the transition below —
+   *  the caller just flips it back to false on a timer. */
+  highlighted?: boolean
 }) {
   const panelId = `txn-${transaction.id}-editor`
 
   return (
     // The separator sits on the inner row, not the <li>, so it is inset to
-    // the text the way a grouped list is on iOS.
-    <li className="pl-4">
+    // the text the way a grouped list is on iOS. The id makes the row
+    // addressable by scrollIntoView for the highlighted-on-add case.
+    <li id={`txn-row-${transaction.id}`} className={`pl-4 transition-colors duration-700 ${highlighted ? 'bg-success/15' : ''}`}>
       {/* A real <button>, not a div with onClick: Enter and Space then work
           with no extra code, and the row announces itself as expandable. The
           trailing chevron gives sighted users the same signal aria-expanded

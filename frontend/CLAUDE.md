@@ -649,6 +649,21 @@ used for the month name just underneath, on purpose: the brand mark is a
 quiet anchor, not competition for "the user's numbers are the loudest thing
 on screen."
 
+**A pull-to-refresh gesture sits right under that title row**, the standard
+iOS answer to "nothing refetches after a write" (see the no-refetch rules
+throughout this file): `usePullToRefresh` listens on `window`, not an inner
+scroll container — the dashboard has none, `<main>` is a bare
+`min-h-screen` and the page itself scrolls. It only arms at
+`window.scrollY === 0` and is disabled whenever any `Sheet` is open, since a
+drag behind one is aimed at the sheet. `PullToRefreshBanner` renders the
+reload icon tracking the drag, spinning while `refresh()` (now exported
+from `useDashboard` and returning a `boolean`) is in flight, swapping to a
+green "Reloaded" pill on success — `false` (a genuine fetch failure) skips
+the sticker, since the existing `error`/`ErrorNotice` banner already
+surfaces that. `overscroll-behavior-y: contain` on `html`/`body` in
+`index.css` stops Safari's native rubber-band from fighting the custom pull
+visual.
+
 **`AddTransactionMenu` sits immediately beside the month total**, not inside
 the transaction list further down — it's the one action the dashboard exists
 to support, so it doesn't wait behind a scroll. It's a `usePopoverMenu`
@@ -690,20 +705,32 @@ order so an off-screen form can't be read out or tabbed into, and
 `index.css` collapses every transition to 0.01ms there, and an invisible scrim
 that still ate taps would be worse than no animation at all.
 
-**Submitting confirms in the button, then closes the sheet.** `useDashboard`'s
-`addStatus` (`idle` → `saving` → `saved`) drives it: `saving` disables the Add
-button, which is also what stops a double tap entering the same spending twice;
-`saved` swaps it for a tick with the `animate-pop` keyframes, held ~450ms by an
-effect with a `clearTimeout` cleanup — so closing the sheet by hand mid-hold
-cancels the dismissal instead of firing into a component that has moved on. The
-button is the confirmation, which is the Apple idiom; a toast would be a third
-signal on top of the tick and the new row already rendering behind the sheet.
-Closing on success is a **reversal** of this app's earlier "stay open for the
-next entry" behaviour, and it costs less than it looks: the drafts and the
-category live in `useDashboard`, not in the sheet, so reopening starts where the
-last entry left off (see § Categories) — one extra tap, not a lost flow. The
-rest of the form is unchanged: same fields, same close (×) button, same
-`merchantInputRef` + `requestAnimationFrame` autofocus.
+**Submitting confirms in a centered overlay, not the button.** `useDashboard`'s
+`addStatus` (`idle` → `saving` → `saved`) still disables the Add button
+through both busy states — still what stops a double tap entering the same
+spending twice — but the confirmation itself is `AddStatusOverlay`, a
+fixed, `backdrop-blur`-ed card centered over the whole page, at a higher
+`z-index` than `Sheet`'s. **The sheet does not close on submit** — it stays
+open and blurred underneath the overlay through `'saving'` and `'saved'`,
+closing only when the overlay's hold ends (~600ms, the same
+`clearTimeout`-cleaned effect that used to just dismiss the sheet). That is
+what keeps the failure path untouched: a thrown `createTransaction` still
+just sets `addStatus` back to `'idle'` with no sheet-close call, so the
+overlay vanishes and the sheet is exactly as it was, draft intact, inline
+error visible — closing the sheet up front would have needed a new way to
+resurface that. On success the same effect also flips `view` to `'list'`
+(if it wasn't already) and leaves `highlightedId` set, which a second effect
+turns into `scrollIntoView({ block: 'center' })` plus a ~1.2s `bg-success/15`
+fade on the new row, looked up by the DOM id every `TransactionRow` now
+carries (`txn-row-{id}`) rather than a ref map, since the row is shared by
+List view and a budget drill-down and only one of those is ever mounted.
+Closing on success is still a **reversal** of this app's earlier "stay open
+for the next entry" behaviour, and it still costs less than it looks: the
+drafts and the category live in `useDashboard`, not in the sheet, so
+reopening starts where the last entry left off (see § Categories) — one
+extra tap, not a lost flow. The rest of the form is unchanged: same fields,
+same close (×) button, same `merchantInputRef` + `requestAnimationFrame`
+autofocus.
 
 **`AddTransactionMenu`'s trigger is solid (`bg-accent`), not tinted.** Every
 other icon-only action on the dashboard (`SlidersIcon` for the budget editor,
