@@ -25,11 +25,28 @@ export function CategorySelect({
 }) {
   const [draft, setDraft] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const { labelFor } = useCategoryOwners()
+  const { labelFor, budgetOwnerId } = useCategoryOwners()
+
+  // Collapse same-named categories (both members tend to have a "Groceries")
+  // into one option. The representative is whichever sibling is already
+  // selected — so an in-flight pick (e.g. from merchant autocomplete, which
+  // can hand back either duplicate's id) never goes blank — otherwise the
+  // budget owner's copy, since that's what "+ New category" always resolves
+  // to from here on. Unshared or showing one member's set, every name-group
+  // has exactly one row, so this is a no-op.
+  const byName = new Map<string, Category[]>()
+  for (const c of categories) {
+    const key = c.name.toLowerCase()
+    byName.set(key, [...(byName.get(key) ?? []), c])
+  }
+  const merged = [...byName.values()].map(
+    (group) => group.find((c) => c.id === value) ?? group.find((c) => c.userId === budgetOwnerId) ?? group[0],
+  )
+
   // Only populated while a share shows both members' categories; otherwise
   // every label is null and the list stays flat, exactly as before.
   const groups = new Map<string, Category[]>()
-  for (const c of categories) {
+  for (const c of merged) {
     const label = labelFor(c) ?? ''
     groups.set(label, [...(groups.get(label) ?? []), c])
   }
