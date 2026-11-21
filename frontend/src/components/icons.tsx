@@ -94,3 +94,18 @@ export const MinusCircleIcon = () => (
     <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm5 11H7a1 1 0 0 1 0-2h10a1 1 0 0 1 0 2Z" />
   </svg>
 )
+
+// A circular arrow with a gap, the arrowhead sitting in the gap — the
+// standard "refresh" glyph. The caller rotates it while a fetch is in
+// flight (see usePullToRefresh), so the path itself stays static.
+export const ReloadIcon = () => (
+  <svg viewBox="0 0 24 24" className="size-5" fill="none" aria-hidden>
+    <path
+      d="M20 12a8 8 0 1 1-2.34-5.66"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+    <path d="M20 4v4h-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)

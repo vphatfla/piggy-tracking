@@ -116,6 +116,12 @@ export function useDashboard(session: Session) {
   // spending twice) and 'saved' shows the tick before the sheet dismisses
   // itself — see the effect further down.
   const [addStatus, setAddStatus] = useState<AddStatus>('idle')
+  // The id of the row to scroll to and highlight once the post-add
+  // transition lands on List view, and (while non-null) the id whose row
+  // renders highlighted. Set on a successful add; cleared on a timer by the
+  // effect below once it has scrolled there — see that effect's own comment
+  // for why the "don't re-scroll" guard is a ref, not a second state.
+  const [highlightedId, setHighlightedId] = useState<number | null>(null)
   const merchantInputRef = useRef<HTMLInputElement>(null)
   // null means "nothing picked yet, follow the default" — see selectedCategory.
   // The `source` rides along with the id rather than living in a second
@@ -141,7 +147,13 @@ export function useDashboard(session: Session) {
   // so it is never assigned during render.
   const sortRef = useRef(sort)
 
-  const refresh = useCallback(async () => {
+  // Returns whether the fetch actually landed — a stale response (an older
+  // request superseded by a newer one) reports neither success nor failure
+  // to its own caller, since by definition a newer refresh is already
+  // underway or done. Used by pull-to-refresh to decide whether to show the
+  // "Reloaded" sticker; the mount effect and onSubmit's await don't need the
+  // return value and can keep ignoring it.
+  const refresh = useCallback(async (): Promise<boolean> => {
     const id = ++requestId.current
     setLoading(true)
     setError(null)
@@ -155,16 +167,18 @@ export function useDashboard(session: Session) {
         getBudgets(accessToken, month),
         getIncomes(accessToken, month),
       ])
-      if (id !== requestId.current) return
+      if (id !== requestId.current) return true
       setReceipts(r)
       setTransactions(t)
       setBudgets(b)
       setIncomes(inc)
       setOrder(sortTransactions(t, sortRef.current).map((x) => x.id))
       setExpandedId(null)
+      return true
     } catch (e) {
-      if (id !== requestId.current) return
+      if (id !== requestId.current) return true
       setError(e instanceof Error ? e.message : String(e))
+      return false
     } finally {
       if (id === requestId.current) setLoading(false)
     }
@@ -416,7 +430,7 @@ export function useDashboard(session: Session) {
     if (addStatus !== 'idle') return
     setAddStatus('saving')
     try {
-      await createTransaction(accessToken, {
+      const created = await createTransaction(accessToken, {
         merchantName: merchant.trim(),
         amount: amount.trim(),
         categoryId: selectedCategory,
@@ -448,25 +462,34 @@ export function useDashboard(session: Session) {
       // looking at June is a mistake, not a feature.
       setDate(todayIso())
       await refresh()
+      setHighlightedId(created.id)
       setAddStatus('saved')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       // Back to an editable form with the entry still in it — the sheet stays
-      // open so the user can retry rather than losing what they typed.
+      // open so the user can retry rather than losing what they typed. The
+      // overlay (keyed on addStatus) disappears with nothing further to undo:
+      // the sheet never closed, so there is no second surface to resurface
+      // the failure on.
       setAddStatus('idle')
     }
   }
 
-  // The tick is held long enough to read, then the sheet dismisses itself. A
-  // timeout with a cleanup rather than a chain of setTimeouts inside onSubmit:
-  // closing the sheet by hand mid-hold cancels it instead of firing into a
-  // component that has moved on.
+  // The confirmation overlay is held long enough to read, then the sheet
+  // dismisses itself and the dashboard switches to List so the new row has
+  // somewhere to be scrolled into view (Dashboard.tsx's justAddedId effect
+  // does that part). A timeout with a cleanup rather than a chain of
+  // setTimeouts inside onSubmit: closing the sheet by hand mid-hold cancels
+  // it instead of firing into a component that has moved on.
   useEffect(() => {
     if (addStatus !== 'saved') return
     const id = setTimeout(() => {
       setAddingTransaction(false)
       setAddStatus('idle')
-    }, 450)
+      setView('list')
+      setExpandedCategoryId(null)
+      setExpandedId(null)
+    }, 600)
     return () => clearTimeout(id)
   }, [addStatus])
 
@@ -475,6 +498,26 @@ export function useDashboard(session: Session) {
     setExpandedCategoryId(null)
     setExpandedId(null)
   }
+
+  // Scrolls the highlighted row into view once the post-add transition lands
+  // on List view — the 'saved' timeout effect above is what flips `view`,
+  // this just waits for it. Looked up by DOM id rather than a ref map:
+  // TransactionRow is shared by List view and a budget drill-down, so one id
+  // per row is simpler than plumbing a ref through both call sites.
+  //
+  // `scrolledTo` is a ref, not a second state field: it only guards against
+  // scrolling twice for the same id (e.g. if `view` changes again while
+  // `highlightedId` is still set), and a ref lets that guard live without a
+  // synchronous setState call in the effect body — the one state write here
+  // is the timeout's, same shape as the 'saved' effect above.
+  const scrolledTo = useRef<number | null>(null)
+  useEffect(() => {
+    if (highlightedId === null || view !== 'list' || scrolledTo.current === highlightedId) return
+    scrolledTo.current = highlightedId
+    document.getElementById(`txn-row-${highlightedId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const t = setTimeout(() => setHighlightedId(null), 1200)
+    return () => clearTimeout(t)
+  }, [highlightedId, view])
 
   function onToggleCategory(id: number | 'uncategorised') {
     setExpandedCategoryId((cur) => (cur === id ? null : id))
@@ -724,9 +767,11 @@ export function useDashboard(session: Session) {
       applyThemePreference(pref)
       setThemePref(pref)
     },
+    refresh,
     addingTransaction,
     setAddingTransaction,
     addStatus,
+    highlightedId,
     merchantInputRef,
     merchant,
     setMerchant,

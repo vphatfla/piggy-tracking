@@ -1,9 +1,11 @@
 import type { Session } from '../api'
 import { formatMoney } from '../format'
 import { useDashboard } from '../hooks/useDashboard'
+import { usePullToRefresh } from '../hooks/usePullToRefresh'
 import { formatMonthLabel } from '../month'
 import { AccountMenu } from './AccountMenu'
 import { AddIncomeSheet } from './AddIncomeSheet'
+import { AddStatusOverlay } from './AddStatusOverlay'
 import { AddTransactionMenu } from './AddTransactionMenu'
 import { AddTransactionSheet } from './AddTransactionSheet'
 import { categoryDisplayName, CategoryOwnersContext } from '../categoryOwners'
@@ -12,6 +14,7 @@ import { BudgetRow } from './BudgetRow'
 import { ErrorNotice } from './ErrorNotice'
 import { Chevron, ChevronDown, PlusIcon, SlidersIcon } from './icons'
 import { IncomeRow } from './IncomeRow'
+import { PullToRefreshBanner } from './PullToRefreshBanner'
 import { SharePage } from './SharePage'
 import { SortChip } from './SortChip'
 import { StepButton } from './StepButton'
@@ -64,9 +67,11 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     onLeaveShare,
     themePref,
     onThemeChange,
+    refresh,
     addingTransaction,
     setAddingTransaction,
     addStatus,
+    highlightedId,
     merchantInputRef,
     merchant,
     setMerchant,
@@ -99,6 +104,13 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     onJoinWithCode,
   } = useDashboard(session)
   const dim = loading ? 'opacity-40' : ''
+  // Disabled while any sheet is open: a drag behind one of those is aimed at
+  // the sheet, not the page, so engaging the gesture there would be the
+  // surprising thing.
+  const { status: pullStatus, pullDistance } = usePullToRefresh({
+    onRefresh: refresh,
+    disabled: addingTransaction || addingIncome || sharingOpen,
+  })
 
   // Shared by both drill-down entry points (a real category and the
   // Uncategorised bucket) so the two never render differently.
@@ -120,6 +132,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
             onSaved={onSaved}
             onDeleted={onDeleted}
             showOwner={share !== null}
+            highlighted={t.id === highlightedId}
           />
         ))}
         {categoryRows.length === 0 && (
@@ -148,6 +161,8 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                 onLogout={onLogout}
               />
             </div>
+
+            <PullToRefreshBanner status={pullStatus} pullDistance={pullDistance} />
 
             <div className="mt-2 flex items-center justify-between gap-2">
               <h1 className="min-w-0 truncate text-title-2 font-semibold text-label">
@@ -375,6 +390,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                     onSaved={onSaved}
                     onDeleted={onDeleted}
                     showOwner={share !== null}
+                    highlighted={t.id === highlightedId}
                   />
                 ))}
                 {rows.length === 0 && !error && (
@@ -414,6 +430,8 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
           setCategoryId={setCategoryId}
           onAddCategory={onAddCategory}
         />
+
+        <AddStatusOverlay status={addStatus} />
 
         <AddIncomeSheet
           open={addingIncome}

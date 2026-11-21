@@ -3,7 +3,7 @@ import type { Category, Merchant } from '../api'
 import type { AddStatus } from '../hooks/useDashboard'
 import { inputClasses } from '../ui'
 import { CategorySelect } from './CategorySelect'
-import { CheckIcon, CloseIcon } from './icons'
+import { CloseIcon } from './icons'
 import { MerchantInput } from './MerchantInput'
 import { MoneyInput } from './MoneyInput'
 import { Sheet } from './Sheet'
@@ -13,9 +13,10 @@ import { Sheet } from './Sheet'
  *  not an edit of something already on screen, so it rises to meet the tap
  *  instead of waiting below the fold.
  *
- *  `status` drives the Add button through the whole submit: it disables while
- *  the write is in flight and becomes a tick when it lands, after which the
- *  sheet dismisses itself. */
+ *  `status` only disables the Add button here — the confirmation itself is
+ *  `AddStatusOverlay`, a centered overlay rendered above this sheet (see
+ *  Dashboard.tsx) once the write lands, since this sheet stays open and
+ *  blurred underneath it until that overlay has run its course. */
 export function AddTransactionSheet({
   open,
   status,
@@ -56,11 +57,6 @@ export function AddTransactionSheet({
   return (
     <Sheet open={open} onClose={onClose} labelledBy="add-transaction-title">
       <form onSubmit={onSubmit} className="space-y-2 p-2">
-        {/* Announced, not just seen: the tick on the button is invisible to a
-            screen reader, and the sheet closing is not by itself a success. */}
-        <p role="status" aria-live="polite" className="sr-only">
-          {status === 'saved' ? 'Transaction added' : ''}
-        </p>
         <div className="flex items-center justify-between px-1 pt-1">
           <h2
             id="add-transaction-title"
@@ -106,26 +102,16 @@ export function AddTransactionSheet({
             aria-label="Amount"
             className={`${inputClasses} w-24 text-right tabular-nums`}
           />
-          {/* The button is the confirmation, which is the Apple idiom — no
-              toast, and nothing else to dismiss. A tick, held just long
-              enough to read, and then the sheet takes itself away (the timer
-              lives in useDashboard). Disabling it while the write is in
-              flight is also what stops a double tap entering the same
-              spending twice. */}
+          {/* Disabling while the write is in flight is what stops a double
+              tap entering the same spending twice. The confirmation itself
+              is the overlay above this sheet, not this button — see
+              AddStatusOverlay. */}
           <button
             type="submit"
             disabled={status !== 'idle'}
             className="flex min-h-11 w-24 shrink-0 items-center justify-center rounded-full bg-accent px-5 text-headline font-semibold text-on-accent transition-opacity duration-200 ease-out hover:opacity-90 active:opacity-75 disabled:opacity-100 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface focus-visible:outline-none"
           >
-            {status === 'saved' ? (
-              <span className="motion-safe:animate-pop">
-                <CheckIcon />
-              </span>
-            ) : (
-              <span className={status === 'saving' ? 'opacity-60' : ''}>
-                {status === 'saving' ? 'Adding…' : 'Add'}
-              </span>
-            )}
+            <span className={status !== 'idle' ? 'opacity-60' : ''}>{status !== 'idle' ? 'Adding…' : 'Add'}</span>
           </button>
         </div>
       </form>
