@@ -6,9 +6,9 @@ import type { Category } from './api'
  *  shows one member's set, where every category is the same person's and a
  *  label would be noise. Carried in context because the category pickers sit
  *  several components below the dashboard and all need the same answer. */
-export type CategoryOwners = { labelFor: (c: Category) => string | null }
+export type CategoryOwners = { labelFor: (c: Category) => string | null; budgetOwnerId: number | null }
 
-export const CategoryOwnersContext = createContext<CategoryOwners>({ labelFor: () => null })
+export const CategoryOwnersContext = createContext<CategoryOwners>({ labelFor: () => null, budgetOwnerId: null })
 
 export const useCategoryOwners = () => useContext(CategoryOwnersContext)
 

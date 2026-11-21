@@ -261,9 +261,14 @@ sets at once instead of flipping `budgetOwnerUserId` back and forth. It is a
 the category/budget GETs and for the "may a transaction be filed under this
 category" check, and every category or budget *write* still resolves through
 `effectiveBudgetOwnerId`. A flag rather than a nullable owner, so the owner
-stays the single, always-defined write target. The UI labels each category with
-its owner (names collide: both people tend to have "Groceries"), and the budget
-editor lists the other member's categories read-only.
+stays the single, always-defined write target. Names collide — both people
+tend to have "Groceries" — and the two surfaces that show both sets handle it
+differently: the budget editor labels each row with its owner and lists the
+other member's read-only, since renaming/deleting/setting a limit needs an
+unambiguous target; the transaction-entry and edit-row picker instead merges
+same-named rows into one option (`frontend/CLAUDE.md`'s Categories and
+Account menu sections), since there a user picking "Groceries" doesn't care
+which of two identical-looking rows it resolves to.
 
 **The trap it opens, and how the dashboard closes it.** Turning the flag off
 does not un-file anything: a transaction filed under the partner's category

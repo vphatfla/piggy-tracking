@@ -404,6 +404,14 @@ an inline text field — Escape or an empty save cancels, and Enter is
 intercepted so it saves the category rather than submitting the transaction
 form it sits inside.
 
+**Same-named categories are merged by name in this dropdown.** Under
+`showBothBudgets`, `GET /api/categories` returns both members' rows, and
+since each person creates their own "Groceries" independently (`Category` is
+`@@unique([userId, name])`, not shared), the raw list has real duplicates.
+`CategorySelect` collapses each name to one option before grouping by owner —
+see § Account menu's "Both" paragraph for the representative-picking rule and
+why `BudgetEditor` deliberately does **not** do this.
+
 **The selected category is derived during render, not stored by an effect:** an
 explicit pick wins, otherwise the most recent categorised transaction in the
 fetched list, otherwise the first category alphabetically. That is why adding a
@@ -609,6 +617,17 @@ screen. It carries a `labelFor` through context — the pickers sit several
 components below the dashboard and all need the same answer — and returns
 `null` when no label is needed (unshared, or showing one member's set), where a
 label would be noise.
+
+The context also carries `budgetOwnerId`, for a different job: `CategorySelect`
+(the add-transaction and edit-row picker) uses it to **merge** same-named
+categories into one option rather than just labelling them — two "Groceries"
+rows reading as one is the fix, a label on each would still be two rows. The
+representative shown is whichever sibling is already selected (so a value
+handed in by merchant autocomplete, which can resolve to either duplicate's
+id, never goes blank), otherwise the budget owner's copy. **`BudgetEditor`
+does not merge** — it's the one place a rename, delete, or limit needs an
+unambiguous target, so it keeps listing both members' rows separately
+(owner's editable, partner's read-only via `readOnlyCategories`).
 
 Two things in there are deliberate and will look like oversights. The code's
 expiry renders as an **absolute wall-clock time, never a countdown** — `Sheet`

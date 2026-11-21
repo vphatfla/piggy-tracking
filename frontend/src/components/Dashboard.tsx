@@ -143,7 +143,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
   }
 
   return (
-    <CategoryOwnersContext value={{ labelFor: categoryOwnerLabel }}>
+    <CategoryOwnersContext value={{ labelFor: categoryOwnerLabel, budgetOwnerId }}>
       <main className="min-h-screen bg-bg-grouped">
         <div className="mx-auto w-full max-w-xl space-y-6 px-4 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-5">
           <header>
