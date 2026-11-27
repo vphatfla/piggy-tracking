@@ -20,3 +20,18 @@ export function spendByCategory(transactions: Transaction[]) {
   }
   return spent
 }
+
+/** The budget-bar fill colour for one category's spend, as a 5-step spectrum
+ *  rather than a plain under/over binary. Bands are unclamped — a row at
+ *  300% of its limit is still "deep red", even though the bar's own width is
+ *  clamped to 100% elsewhere so it doesn't render out of its track. The
+ *  100% boundary matches `over = spent > limit` exactly: at or under the
+ *  limit is still "orange", not yet "red". */
+export function budgetBarColorClass(spent: number, limit: number): string {
+  const ratio = limit > 0 ? (spent / limit) * 100 : 0
+  if (ratio > 110) return 'bg-budget-red-deep'
+  if (ratio > 100) return 'bg-danger'
+  if (ratio >= 90) return 'bg-accent'
+  if (ratio >= 70) return 'bg-budget-yellow'
+  return 'bg-success'
+}

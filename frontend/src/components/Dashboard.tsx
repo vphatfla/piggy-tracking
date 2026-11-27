@@ -2,7 +2,7 @@ import type { Session } from '../api'
 import { formatMoney } from '../format'
 import { useDashboard } from '../hooks/useDashboard'
 import { usePullToRefresh } from '../hooks/usePullToRefresh'
-import { formatMonthLabel } from '../month'
+import { currentMonth, formatMonthLabel } from '../month'
 import { AccountMenu } from './AccountMenu'
 import { AddIncomeSheet } from './AddIncomeSheet'
 import { AddStatusOverlay } from './AddStatusOverlay'
@@ -27,6 +27,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     user,
     month,
     changeMonth,
+    goToCurrentMonth,
     sort,
     onSortPress,
     transactions,
@@ -168,15 +169,26 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
               <h1 className="min-w-0 truncate text-title-2 font-semibold text-label">
                 {formatMonthLabel(month)}
               </h1>
-              <div className="-mr-3 flex shrink-0 items-center">
-                <StepButton label="Previous month" onClick={() => changeMonth(-1)}>
-                  <Chevron dir="left" />
-                </StepButton>
-                {/* Not disabled at the current month: future-dated transactions
-                    are legal, so a month that can hold rows must be reachable. */}
-                <StepButton label="Next month" onClick={() => changeMonth(1)}>
-                  <Chevron dir="right" />
-                </StepButton>
+              <div className="flex shrink-0 items-center gap-1">
+                {month !== currentMonth() && (
+                  <button
+                    type="button"
+                    onClick={goToCurrentMonth}
+                    className="min-h-11 rounded-full bg-accent/12 px-3 text-footnote font-semibold text-accent-text transition-colors duration-200 ease-out hover:bg-accent/20 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                  >
+                    Current Month
+                  </button>
+                )}
+                <div className="-mr-3 flex items-center">
+                  <StepButton label="Previous month" onClick={() => changeMonth(-1)}>
+                    <Chevron dir="left" />
+                  </StepButton>
+                  {/* Not disabled at the current month: future-dated transactions
+                      are legal, so a month that can hold rows must be reachable. */}
+                  <StepButton label="Next month" onClick={() => changeMonth(1)}>
+                    <Chevron dir="right" />
+                  </StepButton>
+                </div>
               </div>
             </div>
 
@@ -326,7 +338,6 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                       name={categoryDisplayName(r.category, categoryOwnerLabel(r.category))}
                       spent={r.spent}
                       limit={r.budget ? cents(r.budget.amount) : null}
-                      inherited={r.budget?.inherited ?? false}
                       first={i === 0}
                       expanded={expandedCategoryId === r.category.id}
                       onToggle={() => onToggleCategory(r.category.id)}
@@ -339,7 +350,6 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                       name="Uncategorised"
                       spent={uncategorised}
                       limit={null}
-                      inherited={false}
                       first={budgetRows.length === 0}
                       expanded={expandedCategoryId === 'uncategorised'}
                       onToggle={() => onToggleCategory('uncategorised')}

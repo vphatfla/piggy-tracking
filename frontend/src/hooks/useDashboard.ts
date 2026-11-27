@@ -199,6 +199,14 @@ export function useDashboard(session: Session) {
     setExpandedCategoryId(null)
   }
 
+  // Same reset as changeMonth, jumping straight to the current month rather
+  // than stepping — what the header's "Today" pill calls.
+  function goToCurrentMonth() {
+    setMonth(currentMonth())
+    setView('budgets')
+    setExpandedCategoryId(null)
+  }
+
   // Not refresh(): re-reading the whole month would reshuffle the pinned row
   // order and collapse an open editor, and a budget write cannot change a
   // transaction anyway.
@@ -713,6 +721,7 @@ export function useDashboard(session: Session) {
     user,
     month,
     changeMonth,
+    goToCurrentMonth,
     sort,
     onSortPress,
     receipts,

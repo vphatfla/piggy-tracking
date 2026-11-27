@@ -36,6 +36,11 @@
   --color-success: var(--p-success);
   --color-link: var(--p-link);
 
+  /* The budget-view spend spectrum. Green/orange/red reuse the tokens above —
+     only the two intermediate/escalated steps need their own value. */
+  --color-budget-yellow: var(--p-budget-yellow);
+  --color-budget-red-deep: var(--p-budget-red-deep);
+
   /* Apple text styles. The paired `--line-height` is the leading from the
      HIG table; never set a size without it. */
   --text-title-lg: 34px;
@@ -111,6 +116,11 @@
   --p-success: #34c759;
   --p-link: #007aff;
 
+  /* Apple systemYellow — the 70-90% budget band. */
+  --p-budget-yellow: #ffcc00;
+  /* Darker/more saturated than --p-danger: the >110% "deep red" budget band. */
+  --p-budget-red-deep: #bf0012;
+
   --p-shadow-card: 0 1px 3px rgb(0 0 0 / 0.08);
 
   /* Lets native controls and the scrollbar match whichever theme is active —
@@ -142,6 +152,11 @@
   --p-danger-text: #ff453a;
   --p-success: #30d158;
   --p-link: #0a84ff;
+
+  --p-budget-yellow: #ffd60a;
+  /* Brighter, not darker, than --p-danger: a darker red loses contrast
+     against the near-black dark background rather than reading as "worse". */
+  --p-budget-red-deep: #ff2d20;
 
   --p-shadow-card: none;
   color-scheme: dark;

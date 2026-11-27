@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { formatMoney } from '../format'
+import { budgetBarColorClass } from '../budgetCalc'
 import { ChevronDown } from './icons'
 
 /** One category's line: what was spent, against the limit if there is one.
@@ -15,7 +16,6 @@ export function BudgetRow({
   name,
   spent,
   limit,
-  inherited,
   first,
   expanded,
   onToggle,
@@ -24,7 +24,6 @@ export function BudgetRow({
   name: string
   spent: number
   limit: number | null
-  inherited: boolean
   first: boolean
   expanded: boolean
   onToggle: () => void
@@ -66,9 +65,7 @@ export function BudgetRow({
               so announcing it again is noise, not information. */}
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-raised" aria-hidden>
             <div
-              className={`h-full rounded-full transition-[width] duration-300 ease-out ${
-                over ? 'bg-danger' : 'bg-accent'
-              }`}
+              className={`h-full rounded-full transition-[width] duration-300 ease-out ${budgetBarColorClass(spent, limit)}`}
               style={{ width: `${over ? 100 : pct}%` }}
             />
           </div>
@@ -76,7 +73,6 @@ export function BudgetRow({
             {over
               ? `${formatMoney((spent - limit) / 100)} over`
               : `${formatMoney((limit - spent) / 100)} left`}
-            {inherited && ' · carried over'}
           </p>
         </>
       )}
