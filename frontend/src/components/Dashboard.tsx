@@ -88,6 +88,10 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
     setAmount,
     date,
     setDate,
+    recurringType,
+    setRecurringType,
+    recurringEndMonth,
+    setRecurringEndMonth,
     selectedCategory,
     setCategoryId,
     onSubmit,
@@ -467,6 +471,10 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
           setAmount={setAmount}
           date={date}
           setDate={setDate}
+          recurringType={recurringType}
+          setRecurringType={setRecurringType}
+          recurringEndMonth={recurringEndMonth}
+          setRecurringEndMonth={setRecurringEndMonth}
           categories={categories}
           selectedCategory={selectedCategory}
           setCategoryId={setCategoryId}

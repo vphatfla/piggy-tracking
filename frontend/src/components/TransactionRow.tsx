@@ -67,6 +67,7 @@ export function TransactionRow({
           <p className="mt-0.5 truncate text-subheadline text-label-secondary">
             {formatDate(transaction.date)} · {transaction.category ?? 'Uncategorised'}
             {receipt && ' · Receipt'}
+            {transaction.recurringTransactionId !== null && ' · Recurring'}
             {showOwner && ` · ${transaction.ownerName}`}
           </p>
         </div>

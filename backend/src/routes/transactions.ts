@@ -14,6 +14,7 @@ import {
 } from '../http.ts'
 import { authedUserId, requireAuth } from '../middleware/auth.ts'
 import { prisma } from '../prisma.ts'
+import { ensureGenerated } from '../recurring.ts'
 import { budgetScope, visibleUserIds } from '../sharing.ts'
 
 export const transactionsRouter = Router()
@@ -35,12 +36,20 @@ transactionsRouter.get('/', async (req, res, next) => {
     const to = optionalDate(req.query, 'to')
     if (from && to && from > to) throw badRequest('from must not be after to')
 
+    const ownerIds = await visibleUserIds(authedUserId(req))
+    // For every id this caller can see, not just themself — so a share
+    // partner's rent shows up the moment *either* member opens the app,
+    // matching the existing "a shared view is complete" expectation.
+    // ensureGenerated only ever creates rows the series' own userId owns, so
+    // this never makes a partner's series writable by the caller.
+    await Promise.all(ownerIds.map((id) => ensureGenerated(id)))
+
     const transactions = await prisma.transaction.findMany({
       where: {
         // Just the caller normally; both members' ids under an active
         // share, which is the one change that pools two people's spending
         // into one view.
-        userId: { in: await visibleUserIds(authedUserId(req)) },
+        userId: { in: ownerIds },
         // Omitted entirely when neither bound is given, so a bare GET still
         // means "everything".
         ...(from || to ? { date: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
@@ -163,7 +172,7 @@ transactionsRouter.post('/', async (req, res, next) => {
  *  whose it is. "May file under" is the share's read scope — the budget owner's
  *  categories, or both members' when the share shows both — which is wider than
  *  who may edit the category (the owner only; see categories.ts). */
-async function usableCategory(userId: number, categoryId: number) {
+export async function usableCategory(userId: number, categoryId: number) {
   const category = await prisma.category.findFirst({
     where: { id: categoryId, userId: { in: (await budgetScope(userId)).userIds } },
     select: { id: true, name: true },

@@ -8,6 +8,14 @@ import { MerchantInput } from './MerchantInput'
 import { MoneyInput } from './MoneyInput'
 import { Sheet } from './Sheet'
 
+/** "1st"/"2nd"/"3rd"/"4th"... for the "posts on the Nth" helper text below. */
+function ordinal(n: number): string {
+  if (n % 10 === 1 && n % 100 !== 11) return `${n}st`
+  if (n % 10 === 2 && n % 100 !== 12) return `${n}nd`
+  if (n % 10 === 3 && n % 100 !== 13) return `${n}rd`
+  return `${n}th`
+}
+
 /** The manual-entry form, in `Sheet` chrome rather than appended after the
  *  Budgets/List section — it's a global action reachable from the header,
  *  not an edit of something already on screen, so it rises to meet the tap
@@ -31,6 +39,10 @@ export function AddTransactionSheet({
   setAmount,
   date,
   setDate,
+  recurringType,
+  setRecurringType,
+  recurringEndMonth,
+  setRecurringEndMonth,
   categories,
   selectedCategory,
   setCategoryId,
@@ -49,6 +61,17 @@ export function AddTransactionSheet({
   setAmount: (v: string) => void
   date: string
   setDate: (v: string) => void
+  /** One-time is the default here — the opposite emphasis from
+   *  AddIncomeSheet, where most households' income actually is recurring;
+   *  recurring is the opt-in case for a transaction. */
+  recurringType: 'ONE_TIME' | 'RECURRING'
+  setRecurringType: (t: 'ONE_TIME' | 'RECURRING') => void
+  /** Optional — a lease or a financed purchase usually has a known end date
+   *  up front, unlike Income's recurring amount, which never takes one at
+   *  creation. Empty string means "ongoing", same as leaving it blank means
+   *  on the wire (sent as null). */
+  recurringEndMonth: string
+  setRecurringEndMonth: (v: string) => void
   categories: Category[]
   selectedCategory: number | null
   setCategoryId: (id: number) => void
@@ -114,6 +137,49 @@ export function AddTransactionSheet({
             <span className={status !== 'idle' ? 'opacity-60' : ''}>{status !== 'idle' ? 'Adding…' : 'Add'}</span>
           </button>
         </div>
+
+        {/* Same segmented-pair idiom as AddIncomeSheet — a fork in what the
+            row means, not a toggle on an otherwise-identical one. Defaulting
+            to One-time here is the opposite call from Income on purpose: see
+            the prop doc comment. */}
+        <div role="radiogroup" aria-label="Frequency" className="flex gap-2">
+          {(['ONE_TIME', 'RECURRING'] as const).map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              role="radio"
+              aria-checked={recurringType === opt}
+              onClick={() => setRecurringType(opt)}
+              className={`flex min-h-11 flex-1 items-center justify-center rounded-full px-4 text-subheadline font-semibold transition-colors duration-200 ease-out focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none ${
+                recurringType === opt ? 'bg-accent/12 text-accent-text' : 'text-label-secondary hover:bg-surface-raised'
+              }`}
+            >
+              {opt === 'RECURRING' ? 'Recurring' : 'One-time'}
+            </button>
+          ))}
+        </div>
+
+        {recurringType === 'RECURRING' && (
+          <>
+            <div className="flex items-center gap-2">
+              <label htmlFor="recurring-end-month" className="shrink-0 text-footnote text-label-secondary">
+                Ends
+              </label>
+              <input
+                id="recurring-end-month"
+                type="month"
+                value={recurringEndMonth}
+                onChange={(e) => setRecurringEndMonth(e.target.value)}
+                aria-label="Ends (optional)"
+                className={`${inputClasses} flex-1`}
+              />
+            </div>
+            <p className="px-1 text-footnote text-label-tertiary">
+              Posts on the {ordinal(new Date(date).getUTCDate())} of every month
+              {recurringEndMonth ? ` through ${recurringEndMonth}` : ', until ended'}.
+            </p>
+          </>
+        )}
       </form>
     </Sheet>
   )
