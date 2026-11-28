@@ -49,7 +49,7 @@ recall are for the old layout and will be wrong here.
 
 ## Data model
 
-Nine models. See `prisma/schema.prisma` for the authoritative definition.
+Ten models. See `prisma/schema.prisma` for the authoritative definition.
 
 - **User** — Google OAuth is the only auth method, so there is **no password
   column**; `googleId` holds the Google `sub` claim. `email` and `googleId` are
@@ -224,6 +224,26 @@ Nine models. See `prisma/schema.prisma` for the authoritative definition.
   matching row rather than resolving to one winner. Full design record:
   `docs/income.md`.
 
+- **RecurringTransaction** — the template behind a recurring transaction;
+  deliberately *not* Income's shape all the way through. Income's recurring
+  amount is summed live, with no per-month row ever created — a transaction
+  can't work that way, since it has to stay individually editable,
+  deletable, and receipt-attachable, which budgets' spent calculation,
+  receipts, sharing, and the Money Flow view all depend on reading from real
+  `Transaction` rows. So each month's occurrence here is a real
+  `Transaction` row, tagged `recurringTransactionId` (`onDelete: SetNull` —
+  deleting the series detaches its history, never the spending that already
+  happened), generated **lazily from `GET /api/transactions`** — the only
+  place generation happens, since this repo has no cron. `day` (1-31)
+  clamps to a shorter month's last day. `startMonth`/`endMonth` mirror
+  Income's closed-range, forward-only-edit shape, but **`endMonth` may be
+  set at creation** — a lease or a financed purchase usually has a known
+  end date up front, where an income source usually doesn't.
+  `generatedThroughMonth` bounds generation to never get ahead of the real
+  calendar month and lets the sweep skip already-generated months instead
+  of rescanning a series' whole history on every request. Full design
+  record, including the forward-edit reassignment subtlety: `docs/recurring-transactions.md`.
+
 Referential behaviour is intentional and load-bearing:
 
 | Delete | Effect |
@@ -232,6 +252,7 @@ Referential behaviour is intentional and load-bearing:
 | a Receipt | its transactions **survive** with `receiptId` set to `NULL` |
 | a Category | its transactions **survive** with `categoryId` set to `NULL`, but its budgets **cascade** |
 | a Share | no effect on Income, Category, Budget, or Transaction rows — sharing never migrated ownership, so ending it has nothing to undo |
+| a RecurringTransaction | its generated Transaction rows **survive** with `recurringTransactionId` set to `NULL` |
 
 The rationale: a transaction is a record of money spent and stays true even if
 the receipt image, or the label someone filed it under, is deleted. Do not
@@ -244,7 +265,12 @@ Indexed on `Receipt.userId`, `Transaction.userId`, `Transaction.receiptId`,
 the composite is what month and range queries hit. `Budget` has
 `@@index([userId, month])` for the same reason, plus the unique triple.
 `Income` has `@@index([userId, month])` too, with no unique constraint — see
-above for why.
+above for why. `RecurringTransaction` has `@@index([userId, startMonth])`, and
+`Transaction.(recurringTransactionId, date)` is a **unique** index, not a plain
+one — it is the upsert key `ensureGenerated` uses to never double-post a
+month; nullable is deliberate, the opposite of `Budget.categoryId`'s
+reasoning, since Postgres treats every NULL as distinct and most
+transactions aren't part of a series.
 
 **RefreshToken** backs the session layer — see Auth below.
 Deleting a User cascades to it as well, so removing an account also removes
@@ -278,6 +304,12 @@ bounds, whereas two endpoints computing the same window would drift.
 `optionalDate` is reused against `req.query` — it only indexes a field off an
 object, so query params validate through the same path as bodies, and a repeated
 `?from=a&from=b` arrives as an array and fails its `typeof` check.
+
+Before the query, it also calls **`ensureGenerated` (`src/recurring.ts`) for
+every id in the caller's `visibleUserIds`**, not just themself — materializing
+any due-but-not-yet-generated `RecurringTransaction` occurrence, so a share
+partner's rent shows up the moment *either* member opens the app. This is the
+only place generation happens; see `docs/recurring-transactions.md`.
 
 `GET /api/transactions/merchants` returns `[{ merchantName, categoryId }]` —
 one row per distinct merchant in the pooled history, carrying the category it
@@ -402,11 +434,17 @@ Check for drift with `npx prisma migrate status` — expect
   middleware. CORS runs with `credentials: true`, which the browser only honours
   against an explicit origin allowlist — `CORS_ORIGIN` must name the frontend
   exactly, never `*`, or the refresh cookie is silently dropped.
-- `src/routes/{auth,users,receipts,transactions,categories,budgets,shares,invites,incomes}.ts`
+- `src/routes/{auth,users,receipts,transactions,recurringTransactions,categories,budgets,shares,invites,incomes}.ts`
   — one router per concern. Note the one split that is not obvious: minting and
   cancelling an invite live in `invites.ts`, but **redeeming** one is
   `POST /api/shares`, because the thing being created is a Share and the
-  serializer and the one-active-share predicate live there.
+  serializer and the one-active-share predicate live there. Another:
+  `usableCategory`, the category-ownership check, is defined in
+  `transactions.ts` and exported for `recurringTransactions.ts` to reuse rather
+  than duplicating it.
+- `src/recurring.ts` — the generation sweep (`ensureGenerated`) and its pure
+  month-arithmetic helpers, called from `transactions.ts`'s `GET`. No route
+  logic of its own; see `docs/recurring-transactions.md`.
 - `src/auth/` — `google.ts` (ID-token verification) and `tokens.ts` (access +
   refresh token lifecycle). `src/sharing.ts` and `src/invites.ts` hold the
   domain logic for their routers, the same split `auth/tokens.ts` has from
@@ -435,8 +473,9 @@ Never return a raw Prisma row for a model with money or dates on it.
   wants to group by category has the id without parsing an object. `null` means
   the category was deleted — never "the user didn't pick one".
 
-`serializeReceipt` / `serializeTransaction` / `serializeIncome` in `src/http.ts`
-do this. A new model with a `Decimal` or `DATE` column needs its own serializer.
+`serializeReceipt` / `serializeTransaction` / `serializeIncome` /
+`serializeRecurringTransaction` in `src/http.ts` do this. A new model with a
+`Decimal` or `DATE` column needs its own serializer.
 
 `Budget` is the exception that proves the rule: it has no serializer because a
 `GET /api/budgets` row is never a Prisma row. It is an *effective* limit —

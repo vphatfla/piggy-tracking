@@ -108,6 +108,10 @@ main does not deploy anything.
 | POST   | `/api/incomes`           | bearer | `{ source, amount, type: "ONE_TIME"\|"RECURRING", month }` |
 | PATCH  | `/api/incomes/:id`       | bearer | `{ source? }` in place, or `{ amount, effectiveMonth }` to forward-edit a `RECURRING` row |
 | DELETE | `/api/incomes/:id`       | bearer | `204`. Owner only — a share partner can see but not delete |
+| GET    | `/api/recurring-transactions` | bearer | Your recurring-transaction series, independent of month in view |
+| POST   | `/api/recurring-transactions` | bearer | `{ merchantName, amount, categoryId, date: "YYYY-MM-DD", endMonth? }` → `{ series, transaction }` — creates the series and its first occurrence together |
+| PATCH  | `/api/recurring-transactions/:id` | bearer | `{ merchantName }` in place; `{ amount?, categoryId?, merchantName?, effectiveMonth }` to forward-edit; `{ endMonth }` alone to stop recurring |
+| DELETE | `/api/recurring-transactions/:id` | bearer | `204`. Deletes the series only — its generated transactions survive, uncoupled |
 
 "bearer" means `Authorization: Bearer <access token>`; "cookie" means the
 httpOnly `refreshToken` cookie, which browsers only send when the request is made

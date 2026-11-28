@@ -10,6 +10,7 @@ import { categoriesRouter } from './routes/categories.ts'
 import { incomesRouter } from './routes/incomes.ts'
 import { invitesRouter } from './routes/invites.ts'
 import { receiptsRouter } from './routes/receipts.ts'
+import { recurringTransactionsRouter } from './routes/recurringTransactions.ts'
 import { sharesRouter } from './routes/shares.ts'
 import { transactionsRouter } from './routes/transactions.ts'
 import { usersRouter } from './routes/users.ts'
@@ -36,6 +37,7 @@ export function createApp() {
   app.use('/api/categories', categoriesRouter)
   app.use('/api/budgets', budgetsRouter)
   app.use('/api/transactions', transactionsRouter)
+  app.use('/api/recurring-transactions', recurringTransactionsRouter)
   app.use('/api/shares', sharesRouter)
   app.use('/api/invites', invitesRouter)
   app.use('/api/incomes', incomesRouter)

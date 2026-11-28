@@ -168,6 +168,35 @@ handed to someone must not stop working when its sender reopens the screen.
 `docs/sharing.md` carries the arithmetic behind the code length and the
 rate limiter, and the locking argument; read it before changing either.
 
+A **Money Flow** view — a Sankey diagram, the third option on the dashboard's
+Budgets/List toggle — shows the month's income sources flowing into a single
+hub, then fanning out into spending categories and savings. Like the budget
+breakdown, it is a pure client-side reshape of data already fetched for the
+month; no new backend endpoint. Each income source and category gets a
+distinct hue from Apple's 12 named system colours rather than the budget
+view's status spectrum — a Sankey's job is telling entities apart, not
+flagging danger, and reusing that spectrum here just produced duplicate
+greens. `frontend/CLAUDE.md`'s "Money Flow" and "Chart palette" sections
+have the rest, including the one new backend-adjacent fact: this is the
+app's first use of `React.lazy`, so the chart library it pulls in doesn't
+cost Budgets or List anything.
+
+**Transactions can now be recurring** — rent, a subscription, a loan
+payment — with an optional end date, unlike income's recurring amount,
+which never takes one at creation. The two look alike but aren't the same
+shape all the way through: income is summed live with no per-month row
+ever created, while a recurring transaction's template
+(`RecurringTransaction`) generates a real `Transaction` row per month
+(lazily, from `GET /api/transactions`, since this repo has no cron),
+because a transaction has to stay individually editable, deletable, and
+receipt-attachable the way budgets/receipts/sharing/Money Flow all expect.
+Editing one asks, in the UI, whether the change is "just this month" or
+"this and future months" — the former needed no new code at all, since an
+edited occurrence is simply never regenerated. `docs/recurring-transactions.md`
+has the full reasoning, including the trickiest part: a forward edit
+reassigns any already-generated future month to the new terms rather than
+leaving it stranded under the old ones.
+
 The two roadmap milestones were built in the other order, and that is worth
 knowing: **budgets landed first, and the breakdown came with them** — the
 dashboard already holds one month of transactions, so grouping them by category

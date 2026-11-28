@@ -23,12 +23,13 @@ model User {
   yearOfBirth Int?     @db.SmallInt
   createdAt   DateTime @default(now())
 
-  receipts      Receipt[]
-  transactions  Transaction[]
-  categories    Category[]
-  budgets       Budget[]
-  incomes       Income[]
-  refreshTokens RefreshToken[]
+  receipts              Receipt[]
+  transactions          Transaction[]
+  categories            Category[]
+  budgets               Budget[]
+  incomes               Income[]
+  recurringTransactions RecurringTransaction[]
+  refreshTokens         RefreshToken[]
 
   sharesAsLo            Share[] @relation("ShareUserLo")
   sharesAsHi            Share[] @relation("ShareUserHi")
@@ -89,12 +90,22 @@ model Transaction {
   /// permit NULL so deleting a category cannot delete the spending. A NULL here
   /// means exactly one thing — the category this belonged to was deleted.
   categoryId   Int?
+  /// Set only on a row `ensureGenerated()` created from a RecurringTransaction
+  /// template — see that model. SetNull, not Cascade: deleting the whole
+  /// series detaches its history, it must never delete spending that already
+  /// happened, same asymmetry as receiptId/categoryId above. Nullable is the
+  /// point of `@@unique([recurringTransactionId, date])` below, the opposite
+  /// of Budget.categoryId's reasoning — most transactions aren't part of a
+  /// series, and Postgres treats every NULL as distinct in a unique index.
+  recurringTransactionId Int?
   createdAt    DateTime @default(now())
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  receipt  Receipt?  @relation(fields: [receiptId], references: [id], onDelete: SetNull)
-  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  receipt              Receipt?              @relation(fields: [receiptId], references: [id], onDelete: SetNull)
+  category             Category?             @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  recurringTransaction RecurringTransaction? @relation(fields: [recurringTransactionId], references: [id], onDelete: SetNull)
 
+  @@unique([recurringTransactionId, date])
   @@index([userId])
   @@index([receiptId])
   @@index([userId, date])
@@ -115,9 +126,10 @@ model Category {
   name      String
   createdAt DateTime @default(now())
 
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  transactions Transaction[]
-  budgets      Budget[]
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions          Transaction[]
+  budgets               Budget[]
+  recurringTransactions RecurringTransaction[]
 
   @@unique([userId, name])
   @@index([userId])
@@ -191,6 +203,54 @@ model Income {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, month])
+}
+
+/// A recurring spending commitment — rent, a subscription, a loan payment.
+/// The template; each month's occurrence is a real Transaction row (see
+/// Transaction.recurringTransactionId), not a live-summed total the way
+/// Income's recurring amount is — a transaction has to stay individually
+/// editable, deletable, and receipt-attachable, which the rest of the app
+/// (budgets' spent calc, receipts, sharing, Money Flow) all depend on reading
+/// from real Transaction rows. See docs/recurring-transactions.md.
+///
+/// `startMonth`/`endMonth` are Income's closed-range, forward-only-edit shape:
+/// `endMonth` NULL means ongoing; changing amount/category/merchant closes
+/// this row and opens a new one from the edited month, so an already-
+/// generated month keeps the values it was actually generated with. Unlike
+/// Income, `endMonth` MAY be set at creation — a lease or a financed purchase
+/// usually has a known end date up front; an income source usually doesn't
+/// (see incomes.ts's `POST` comment on why it forbids the same there).
+///
+/// `day` (1-31) is the day-of-month to post on, taken from the first
+/// occurrence's date; a shorter month clamps to its last day — day 31 in
+/// February posts on the 28th/29th, the same clamp any billing system uses.
+/// See `occurrenceDate()` in `src/recurring.ts`.
+///
+/// `generatedThroughMonth` is the last month this series has materialized a
+/// Transaction for — bounded by the real calendar month, never ahead of it,
+/// so a future month's occurrence is never created before that month
+/// actually arrives. Advanced by `ensureGenerated()` (`src/recurring.ts`),
+/// called from `GET /api/transactions` — the only place generation happens;
+/// this repo deliberately has no cron/background-job infra.
+model RecurringTransaction {
+  id                    Int      @id @default(autoincrement())
+  userId                Int
+  merchantName          String
+  amount                Decimal  @db.Decimal(10, 2)
+  categoryId            Int?
+  day                   Int      @db.SmallInt
+  startMonth            String   @db.VarChar(7)
+  endMonth              String?  @db.VarChar(7)
+  generatedThroughMonth String   @db.VarChar(7)
+  createdAt             DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// SetNull, not Cascade — same rule as Transaction.categoryId: a label can
+  /// disappear, the spending commitment itself does not.
+  category     Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  transactions Transaction[]
+
+  @@index([userId, startMonth])
 }
 
 /// Pairwise sharing between two household members. Its existence *is* the

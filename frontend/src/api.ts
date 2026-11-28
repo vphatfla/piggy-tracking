@@ -66,6 +66,30 @@ export type Transaction = {
    *  it's the caller's own first name when there's no active share, and
    *  whichever household member actually entered the row when there is. */
   ownerName: string
+  /** Non-null on a row the server generated from a RecurringTransaction
+   *  template — see that type. A plain edit on this row (updateTransaction)
+   *  only ever touches this one occurrence; it is never overwritten by later
+   *  generation. */
+  recurringTransactionId: number | null
+  createdAt: string
+}
+
+/** A recurring spending commitment — the template behind a chain of generated
+ *  Transaction rows (see Transaction.recurringTransactionId). Unlike Income's
+ *  recurring amount, which is summed live and never materialized, each
+ *  month's occurrence here is a real Transaction row, because a transaction
+ *  has to stay individually editable/deletable/receipt-attachable.
+ *  `startMonth`/`endMonth` mirror Income's closed-range, forward-only-edit
+ *  shape; unlike Income, `endMonth` may be set at creation. */
+export type RecurringTransaction = {
+  id: number
+  userId: number
+  merchantName: string
+  amount: string // DECIMAL(10,2), see Receipt.totalAmount
+  categoryId: number | null
+  day: number // 1-31, the day-of-month occurrences post on
+  startMonth: string // YYYY-MM
+  endMonth: string | null // YYYY-MM; null means ongoing
   createdAt: string
 }
 
@@ -309,6 +333,71 @@ export const updateTransaction = (
 /** 204, no body. Hard delete: there is no trash to restore from. */
 export const deleteTransaction = (token: string, id: number) =>
   requestVoid(`/api/transactions/${id}`, { method: 'DELETE' }, token)
+
+// --- recurring transactions --------------------------------------------------
+// The template behind a recurring transaction's generated occurrences. See
+// RecurringTransaction's own doc comment for how this differs from Income's
+// recurring shape.
+
+/** The caller's own series, independent of any month in view — used to seed
+ *  the edit-scope prompt (EditPanel) with the series' current values. */
+export const getRecurringTransactions = (token: string) =>
+  request<RecurringTransaction[]>('/api/recurring-transactions', {}, token)
+
+/** Creates the series and its first occurrence (a real Transaction row)
+ *  together, returning both — the caller needs the occurrence's own id (to
+ *  scroll to / highlight it), not the series'. Unlike `createIncome`,
+ *  `endMonth` may be set here — see RecurringTransaction. */
+export const createRecurringTransaction = (
+  token: string,
+  body: { merchantName: string; amount: string; categoryId: number; date: string; endMonth?: string | null },
+) =>
+  request<{ series: RecurringTransaction; transaction: Transaction }>(
+    '/api/recurring-transactions',
+    { method: 'POST', body: JSON.stringify(body) },
+    token,
+  )
+
+/** A plain field correction — renaming the merchant. Only affects future,
+ *  not-yet-generated months; an already-generated occurrence is its own
+ *  Transaction row and is edited directly via `updateTransaction`. */
+export const updateRecurringTransaction = (token: string, id: number, patch: { merchantName: string }) =>
+  request<RecurringTransaction>(
+    `/api/recurring-transactions/${id}`,
+    { method: 'PATCH', body: JSON.stringify(patch) },
+    token,
+  )
+
+/** Changes the series *going forward*: closes the current row at the month
+ *  before `effectiveMonth` and opens a new one there with the new values.
+ *  Anything already generated at or after `effectiveMonth` is reassigned and
+ *  rewritten in place, not regenerated, so an edited/receipted occurrence
+ *  there survives. Returns the new row. */
+export const updateRecurringTransactionForward = (
+  token: string,
+  id: number,
+  body: { merchantName?: string; amount?: string; categoryId?: number | null; effectiveMonth: string },
+) =>
+  request<RecurringTransaction>(
+    `/api/recurring-transactions/${id}`,
+    { method: 'PATCH', body: JSON.stringify(body) },
+    token,
+  )
+
+/** "Stop recurring after this month" — closes the series with no
+ *  replacement. Nothing is deleted: future months were never pre-generated. */
+export const endRecurringTransaction = (token: string, id: number, endMonth: string) =>
+  request<RecurringTransaction>(
+    `/api/recurring-transactions/${id}`,
+    { method: 'PATCH', body: JSON.stringify({ endMonth }) },
+    token,
+  )
+
+/** 204. Deletes the series only — its already-generated Transaction rows
+ *  survive with recurringTransactionId set to null, same rule category
+ *  deletion already follows. */
+export const deleteRecurringTransaction = (token: string, id: number) =>
+  requestVoid(`/api/recurring-transactions/${id}`, { method: 'DELETE' }, token)
 
 /** Every merchant ever used, with the category it was last filed under — the
  *  whole list, fetched once, filtered on the client. `categoryId` can name a

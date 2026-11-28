@@ -219,6 +219,22 @@ control, in **both** themes — check the dark one separately, it is where this
 usually breaks. Colour is never the only signal (an over-budget row needs a word
 or a glyph, not just red). Everything reachable and operable by keyboard.
 
+### Chart palette — scoped exception to "one accent"
+
+`--color-chart-red` through `--color-chart-brown` (12 tokens, `index.css`) are
+Apple's own named **system colours**, in HIG's documented order — the palette
+Apple itself uses for telling calendars, tags, or chart series apart, as
+distinct from the single app-wide accent. They exist only for Money Flow's
+Sankey nodes (`sankeyCalc.ts`'s `CHART_PALETTE`); nothing else in the app
+should reach for them; use the semantic tokens above for everything else.
+Five of the twelve alias an existing semantic token at the same hex
+(`chart-red` → `--p-danger`, `chart-orange` → `--p-accent`, `chart-yellow` →
+`--p-budget-yellow`, `chart-green` → `--p-success`, `chart-blue` →
+`--p-link`) rather than repeating the value — same colour today, different
+*meaning*, so they're named and may need to diverge later. The other seven
+(mint, teal, cyan, indigo, purple, pink, brown) have no existing token and
+carry fresh `--p-chart-*` hex in both themes.
+
 ## PWA
 
 `vite-plugin-pwa` is configured in `vite.config.ts` with `registerType: 'autoUpdate'`
@@ -589,6 +605,54 @@ The bar is `aria-hidden`: it is a redraw of the two numbers directly above it,
 so announcing it again is noise. It clamps at 100% when over budget — the "$620
 over" line already says how far.
 
+## Money Flow — the third view
+
+`ViewToggle`'s third option, a Sankey diagram of the month's income sources
+fanning into a single hub, then into spending categories and (if there's a
+surplus) Savings. Like the Budgets breakdown, it's a pure client-side reshape
+of data `useDashboard` already fetched for the month — `sankeyCalc.ts`'s
+`buildMoneyFlowData(incomes, budgetRows, uncategorised, labelFor)` — so there
+is **no new backend endpoint**, same reasoning as `spendByCategory`.
+
+**`recharts` (`^3.11.2`) is the one chart dependency in this app**, and
+`MoneyFlowChart.tsx` is the only file that imports it. `Dashboard.tsx` loads
+it via `lazy(() => import('./MoneyFlowChart'))` + `Suspense` — **the first,
+and so far only, use of `React.lazy` in this codebase** — specifically so
+Budgets and List never pay for recharts' bundle size; `sankeyCalc.ts` itself
+imports nothing from `recharts`, which is what keeps the `{nodes, links}`
+data crossing that lazy boundary as a plain object. If a second lazy-loaded
+view is ever added, this is the precedent to follow, not a one-off.
+
+**Node colour is categorical identity, not budget status.** Each income
+source and each category gets a distinct, stable hue from the 12-colour
+`CHART_PALETTE` in `sankeyCalc.ts` (see § Chart palette above), round-robin
+by position — a separate pass per side of the diagram, so income and spend
+nodes are never compared to each other by colour, only within their own
+side, which is where a collision would actually be confusing. This
+deliberately does **not** reuse `budgetBarColorClass`'s 5-step spend
+spectrum: an early version did, and once more than a couple of categories
+were under budget they all rendered the same green — a Sankey's job is
+telling entities apart, the Budgets view already owns the status signal.
+Uncategorised stays `fill-label-tertiary` (a sentinel, not a real category —
+see `budgetCalc.ts`); the hub and Savings stay `fill-success`.
+
+**Known v1 limitation**: if spend exceeds income, the category links simply
+sum to more than the hub's inflow — recharts/d3-sankey lays out whatever
+values it's given and does not enforce flow conservation. There is no
+"overspent" node for the deficit; the Budgets view's "$X over" per category
+already carries that number.
+
+Three more small rules, each avoiding a dangling or ambiguous node:
+- No income this month → the hub is labelled "Spending" instead of "Income"
+  rather than being a zero-value node with nothing feeding it.
+- Nothing at all this month (`totalIncomeCents === 0 && totalSpendCents ===
+  0`) → `Dashboard.tsx` renders the same empty-state text pattern used
+  elsewhere, and never mounts the chart (an empty Sankey has nothing to lay
+  out).
+- More than 12 categories or income sources active in one month → the
+  palette wraps and two entries share a hue. Not solved; Apple's own system
+  colours top out at 12 too.
+
 ## Account menu
 
 The header's top-right corner is a single 44×44 initials avatar
@@ -759,6 +823,45 @@ it keeps the filled-pill treatment `EditPanel`'s Save button and the form's
 own Add button already use, rather than sharing a visual weight with
 secondary controls.
 
+## Recurring transactions
+
+A transaction can be marked recurring at creation (rent, a subscription, a
+loan payment) and, unlike income, given an end date. Full design record —
+including why this isn't Income's shape despite looking similar —
+is `docs/recurring-transactions.md`; this section is the two UI touchpoints.
+
+**`AddTransactionSheet` gains a One-time/Recurring segmented toggle**, the
+same component shape `AddIncomeSheet`'s already uses, but defaulting to
+**One-time** — the opposite call from Income, where most households'
+income actually is recurring. Recurring reveals an optional `<input
+type="month">` "Ends" field; Income's equivalent never takes one at
+creation, only via a later edit, because a lease or a financed purchase
+usually has a known end date up front where an income source usually
+doesn't. Submitting branches to `createRecurringTransaction`, which
+returns `{ series, transaction }` rather than a bare transaction — the
+highlight-and-scroll behaviour in § App title needs the **occurrence's**
+id, never the series'.
+
+**`EditPanel` intercepts Save on a row with `recurringTransactionId` set.**
+A merchant/amount/category change (not a date-only one — editing one
+occurrence's date is inherently "just this one") swaps the Save/Cancel
+footer for an inline two-button choice, "Just this month" vs. "This and
+future months", the same disclosure-not-modal idiom Delete's "Confirm
+delete?" already uses. "Just this month" is the pre-existing, unchanged
+single-row `PATCH /api/transactions/:id` — it needed no new code at all,
+because the backend's generation sweep never overwrites a row that already
+exists. "This and future months" calls the new
+`updateRecurringTransactionForward`, then locally rebuilds the shown
+transaction from the same draft fields rather than a second round trip,
+since the route's response is the series, not the transaction. A separate,
+always-visible **"Stop recurring"** action — deliberately not folded into
+Delete, so ending a series and deleting one occurrence are never
+conflated — calls `endRecurringTransaction` with this occurrence's own
+month.
+
+A `· Recurring` caption suffix on `TransactionRow`, next to the existing
+`· Receipt` one, is the only always-visible sign a row belongs to a series.
+
 ## File structure
 
 `src/App.tsx` is just the session state machine now (`restoring` →
@@ -767,7 +870,8 @@ secondary controls.
 ```
 src/
   App.tsx, SignIn.tsx          # session machine, sign-in screen
-  api.ts, format.ts, month.ts, theme.ts, google.ts, sort.ts, budgetCalc.ts, ui.ts
+  api.ts, format.ts, month.ts, theme.ts, google.ts, sort.ts, budgetCalc.ts,
+  sankeyCalc.ts, ui.ts
   hooks/
     usePopoverMenu.ts          # open + outside-click/Escape dismissal, shared
     useDashboard.ts            # all of Dashboard's state, effects, and derived
@@ -776,8 +880,8 @@ src/
     Dashboard.tsx               # rendering only; calls useDashboard()
     AccountMenu.tsx, AddTransactionMenu.tsx, AddTransactionSheet.tsx,
     BudgetEditor.tsx, BudgetRow.tsx, CategorySelect.tsx, EditPanel.tsx,
-    ErrorNotice.tsx, Sheet.tsx, SortChip.tsx, StepButton.tsx,
-    TransactionRow.tsx, ViewToggle.tsx, icons.tsx
+    ErrorNotice.tsx, MoneyFlowChart.tsx, Sheet.tsx, SortChip.tsx,
+    StepButton.tsx, TransactionRow.tsx, ViewToggle.tsx, icons.tsx
 ```
 
 This split happened after the code had grown to one 1,390-line `App.tsx`

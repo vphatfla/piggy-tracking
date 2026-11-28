@@ -4,6 +4,7 @@ import {
   createCategory,
   createIncome,
   createInvite,
+  createRecurringTransaction,
   createShare,
   createTransaction,
   deleteCategory,
@@ -132,6 +133,12 @@ export function useDashboard(session: Session) {
   const [categoryChoice, setCategoryChoice] = useState<CategoryChoice>(null)
   const [merchant, setMerchant] = useState('')
   const [amount, setAmount] = useState('')
+  // One-time is the default — the opposite emphasis from Income, where most
+  // households' income actually is recurring. Recurring is the opt-in case
+  // for a transaction. Reset together with merchant/amount after a
+  // successful add, same as every other add-form field.
+  const [recurringType, setRecurringType] = useState<'ONE_TIME' | 'RECURRING'>('ONE_TIME')
+  const [recurringEndMonth, setRecurringEndMonth] = useState('')
   // Today per the *user's* clock — the server's today is a timezone guess.
   const [date, setDate] = useState(todayIso())
   const [loading, setLoading] = useState(true)
@@ -438,12 +445,26 @@ export function useDashboard(session: Session) {
     if (addStatus !== 'idle') return
     setAddStatus('saving')
     try {
-      const created = await createTransaction(accessToken, {
-        merchantName: merchant.trim(),
-        amount: amount.trim(),
-        categoryId: selectedCategory,
-        date,
-      })
+      // createRecurringTransaction returns { series, transaction } — the
+      // occurrence's own id is what highlightedId needs below, never the
+      // series' id.
+      const created =
+        recurringType === 'RECURRING'
+          ? (
+              await createRecurringTransaction(accessToken, {
+                merchantName: merchant.trim(),
+                amount: amount.trim(),
+                categoryId: selectedCategory,
+                date,
+                endMonth: recurringEndMonth || null,
+              })
+            ).transaction
+          : await createTransaction(accessToken, {
+              merchantName: merchant.trim(),
+              amount: amount.trim(),
+              categoryId: selectedCategory,
+              date,
+            })
       // Fold the entry into the autocomplete list rather than refetching the
       // whole history. Keyed on the lowercased name and overwriting the stored
       // spelling, which is what the server would return next session.
@@ -456,6 +477,8 @@ export function useDashboard(session: Session) {
       })
       setMerchant('')
       setAmount('')
+      setRecurringType('ONE_TIME')
+      setRecurringEndMonth('')
       // The category's *value* is deliberately not reset: consecutive entries
       // are usually the same kind of spending, and re-picking every time is the
       // friction that makes people stop logging. The sheet closes now, but the
@@ -788,6 +811,10 @@ export function useDashboard(session: Session) {
     setAmount,
     date,
     setDate,
+    recurringType,
+    setRecurringType,
+    recurringEndMonth,
+    setRecurringEndMonth,
     selectedCategory,
     setCategoryId,
     merchants,

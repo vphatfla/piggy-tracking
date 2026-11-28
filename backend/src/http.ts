@@ -187,6 +187,15 @@ export const serializeIncome = <
   }
 }
 
+/** A RecurringTransaction row as the API returns it — just the Decimal
+ *  flattened. No relation to flatten: the frontend already holds `categories`
+ *  keyed by id (same pattern `CategorySelect` uses) rather than this needing
+ *  its own name lookup. */
+export const serializeRecurringTransaction = <T extends { amount: Prisma.Decimal }>(r: T) => ({
+  ...r,
+  amount: r.amount.toFixed(2),
+})
+
 /** Strips `googleId` — it is an authentication identifier, and nothing outside
  *  the sign-in flow has any reason to see it. */
 export const serializeUser = <T extends { googleId: string }>(user: T) => {
