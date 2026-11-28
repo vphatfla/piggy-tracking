@@ -1,8 +1,9 @@
-export type View = 'budgets' | 'list'
+export type View = 'budgets' | 'list' | 'flow'
 
 const OPTIONS: { value: View; label: string }[] = [
   { value: 'budgets', label: 'Budgets' },
   { value: 'list', label: 'List' },
+  { value: 'flow', label: 'Money Flow' },
 ]
 
 /** The dashboard's own section header, not a settings control — same
