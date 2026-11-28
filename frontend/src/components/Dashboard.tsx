@@ -1,8 +1,10 @@
+import { lazy, Suspense } from 'react'
 import type { Session } from '../api'
 import { formatMoney } from '../format'
 import { useDashboard } from '../hooks/useDashboard'
 import { usePullToRefresh } from '../hooks/usePullToRefresh'
 import { currentMonth, formatMonthLabel } from '../month'
+import { buildMoneyFlowData } from '../sankeyCalc'
 import { AccountMenu } from './AccountMenu'
 import { AddIncomeSheet } from './AddIncomeSheet'
 import { AddStatusOverlay } from './AddStatusOverlay'
@@ -20,6 +22,10 @@ import { SortChip } from './SortChip'
 import { StepButton } from './StepButton'
 import { TransactionRow } from './TransactionRow'
 import { ViewToggle } from './ViewToggle'
+
+// The only chart with a recharts dependency, so it's the only chunk that
+// pays for recharts' bundle size — Budgets and List never load it.
+const MoneyFlowChart = lazy(() => import('./MoneyFlowChart'))
 
 export function Dashboard({ session, onLogout }: { session: Session; onLogout: () => void }) {
   const {
@@ -289,7 +295,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                 >
                   <SlidersIcon />
                 </button>
-              ) : (
+              ) : view === 'list' ? (
                 <div className="flex shrink-0 items-center gap-1">
                   <SortChip
                     label="Date"
@@ -304,6 +310,9 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                     onClick={() => onSortPress('amount')}
                   />
                 </div>
+              ) : (
+                // Money Flow is a chart, not a list — nothing to sort or edit here.
+                null
               )}
             </div>
 
@@ -382,7 +391,7 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                   )}
                 </ul>
               )
-            ) : (
+            ) : view === 'list' ? (
               <ul
                 className={`mt-1 overflow-hidden rounded-card bg-surface shadow-card transition-opacity duration-200 ease-out ${dim}`}
               >
@@ -409,6 +418,29 @@ export function Dashboard({ session, onLogout }: { session: Session; onLogout: (
                   </li>
                 )}
               </ul>
+            ) : (
+              <div
+                className={`mt-1 overflow-hidden rounded-card bg-surface shadow-card transition-opacity duration-200 ease-out ${dim}`}
+              >
+                {(() => {
+                  const flow = buildMoneyFlowData(incomes, budgetRows, uncategorised, (c) =>
+                    categoryDisplayName(c, categoryOwnerLabel(c)),
+                  )
+                  return flow.nodes.length === 0 ? (
+                    <p className="px-4 py-10 text-center text-subheadline text-label-secondary">
+                      No money flow to show for {formatMonthLabel(month)}.
+                    </p>
+                  ) : (
+                    <Suspense
+                      fallback={
+                        <p className="px-4 py-24 text-center text-subheadline text-label-secondary">Loading…</p>
+                      }
+                    >
+                      <MoneyFlowChart data={flow} />
+                    </Suspense>
+                  )
+                })()}
+              </div>
             )}
           </section>
 
